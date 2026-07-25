@@ -112,15 +112,23 @@ async def send_welcome(message, chat_id: int):
     texts = t(chat_id)
     exterior_path = os.path.join(IMAGES_DIR, "exterior.jpg")
 
-    if os.path.exists(exterior_path):
-        with open(exterior_path, "rb") as photo_file:
-            await message.reply_photo(
-                photo=photo_file,
-                caption=texts["welcome"],
+    try:
+        if os.path.exists(exterior_path):
+            with open(exterior_path, "rb") as photo_file:
+                await message.reply_photo(
+                    photo=photo_file,
+                    caption=texts["welcome"],
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=main_menu_keyboard(chat_id),
+                )
+        else:
+            await message.reply_text(
+                texts["welcome"],
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=main_menu_keyboard(chat_id),
             )
-    else:
+    except Exception:
+        logger.exception("Xush kelibsiz rasmini yuborishda xato: %s", exterior_path)
         await message.reply_text(
             texts["welcome"],
             parse_mode=ParseMode.MARKDOWN,
@@ -231,16 +239,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = f"*{room['name']}*\n\n{room['desc']}"
         image_path = os.path.join(IMAGES_DIR, f"{room_key}.jpg")
 
-        if os.path.exists(image_path):
-            with open(image_path, "rb") as photo_file:
-                await query.message.reply_photo(
-                    photo=photo_file,
-                    caption=caption,
+        try:
+            if os.path.exists(image_path):
+                with open(image_path, "rb") as photo_file:
+                    await query.message.reply_photo(
+                        photo=photo_file,
+                        caption=caption,
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+            else:
+                await query.message.reply_text(
+                    f"{caption}\n\n{texts['photo_not_found']}",
                     parse_mode=ParseMode.MARKDOWN,
                 )
-        else:
+        except Exception:
+            logger.exception(
+                "Xona rasmini yuborishda xato: room_key=%s, fayl=%s",
+                room_key,
+                image_path,
+            )
             await query.message.reply_text(
-                f"{caption}\n\n{texts['photo_not_found']}",
+                f"{caption}\n\n⚠️ Rasmni yuborishda texnik xatolik yuz berdi. "
+                f"Iltimos keyinroq urinib ko'ring yoki administratorga xabar bering.",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -261,37 +281,64 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(os.path.join(IMAGES_DIR, fn))
         ]
 
-        if not existing_paths:
-            await query.message.reply_text(
-                f"{caption}\n\n{texts['photo_not_found']}",
-                parse_mode=ParseMode.MARKDOWN,
-            )
-        elif len(existing_paths) == 1:
-            with open(existing_paths[0], "rb") as photo_file:
-                await query.message.reply_photo(
-                    photo=photo_file,
-                    caption=caption,
+        # Fayl hajmini tekshiramiz — Telegram fotosurat sifatida yuborilganda
+        # ~10 MB dan katta fayllarni rad etishi mumkin. Bunday hollarda
+        # aniq log yozamiz.
+        MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
+        for p in existing_paths:
+            size_mb = os.path.getsize(p) / (1024 * 1024)
+            if os.path.getsize(p) > MAX_PHOTO_BYTES:
+                logger.warning(
+                    "Rasm hajmi juda katta, Telegram rad etishi mumkin: %s (%.1f MB)",
+                    p,
+                    size_mb,
+                )
+
+        try:
+            if not existing_paths:
+                await query.message.reply_text(
+                    f"{caption}\n\n{texts['photo_not_found']}",
                     parse_mode=ParseMode.MARKDOWN,
                 )
-        else:
-            opened_files = [open(p, "rb") for p in existing_paths]
-            try:
-                media_group = []
-                for index, file_obj in enumerate(opened_files):
-                    if index == 0:
-                        media_group.append(
-                            InputMediaPhoto(
-                                media=file_obj,
-                                caption=caption,
-                                parse_mode=ParseMode.MARKDOWN,
+            elif len(existing_paths) == 1:
+                with open(existing_paths[0], "rb") as photo_file:
+                    await query.message.reply_photo(
+                        photo=photo_file,
+                        caption=caption,
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+            else:
+                opened_files = [open(p, "rb") for p in existing_paths]
+                try:
+                    media_group = []
+                    for index, file_obj in enumerate(opened_files):
+                        if index == 0:
+                            media_group.append(
+                                InputMediaPhoto(
+                                    media=file_obj,
+                                    caption=caption,
+                                    parse_mode=ParseMode.MARKDOWN,
+                                )
                             )
-                        )
-                    else:
-                        media_group.append(InputMediaPhoto(media=file_obj))
-                await query.message.reply_media_group(media=media_group)
-            finally:
-                for file_obj in opened_files:
-                    file_obj.close()
+                        else:
+                            media_group.append(InputMediaPhoto(media=file_obj))
+                    await query.message.reply_media_group(media=media_group)
+                finally:
+                    for file_obj in opened_files:
+                        file_obj.close()
+        except Exception:
+            # Rasm yuborishda kutilmagan xato bo'lsa (masalan fayl hajmi katta,
+            # buzilgan fayl va h.k.) — bot "jim" qolmasin, aniq xabar va log beramiz.
+            logger.exception(
+                "Amenity rasm(lar)ini yuborishda xato: amenity_key=%s, fayllar=%s",
+                amenity_key,
+                existing_paths,
+            )
+            await query.message.reply_text(
+                f"{caption}\n\n⚠️ Rasmni yuborishda texnik xatolik yuz berdi. "
+                f"Iltimos keyinroq urinib ko'ring yoki administratorga xabar bering.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
 
         await query.message.reply_text(
             texts["amenities"]["title"], reply_markup=amenities_inline_keyboard(chat_id)
@@ -338,4 +385,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
