@@ -105,6 +105,29 @@ def amenities_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
 
 # ---------- Buyruqlar (Commands) ----------
 
+async def send_welcome(message, chat_id: int):
+    """Xush kelibsiz xabarini yuboradi. Agar mehmonxona bino rasmi (images/exterior.jpg)
+    mavjud bo'lsa, uni rasm ostidagi izoh (caption) sifatida yuboradi, aks holda oddiy
+    matn ko'rinishida yuboradi."""
+    texts = t(chat_id)
+    exterior_path = os.path.join(IMAGES_DIR, "exterior.jpg")
+
+    if os.path.exists(exterior_path):
+        with open(exterior_path, "rb") as photo_file:
+            await message.reply_photo(
+                photo=photo_file,
+                caption=texts["welcome"],
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=main_menu_keyboard(chat_id),
+            )
+    else:
+        await message.reply_text(
+            texts["welcome"],
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=main_menu_keyboard(chat_id),
+        )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if chat_id not in user_lang:
@@ -114,11 +137,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=language_inline_keyboard(),
         )
     else:
-        await update.message.reply_text(
-            t(chat_id)["welcome"],
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=main_menu_keyboard(chat_id),
-        )
+        await send_welcome(update.message, chat_id)
 
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -185,11 +204,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=language_inline_keyboard(),
         )
     else:
-        await update.message.reply_text(
-            texts["welcome"],
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=main_menu_keyboard(chat_id),
-        )
+        await send_welcome(update.message, chat_id)
 
 
 # ---------- Inline tugmalar (CallbackQuery) ----------
@@ -206,11 +221,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_lang[chat_id] = lang_code
         texts = TEXTS[lang_code]
         await query.message.reply_text(texts["language_changed"])
-        await query.message.reply_text(
-            texts["welcome"],
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=main_menu_keyboard(chat_id),
-        )
+        await send_welcome(query.message, chat_id)
         return
 
     if data.startswith("room:"):
@@ -327,3 +338,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
