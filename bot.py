@@ -66,6 +66,11 @@ JPEG_QUALITY = 85
 # qayta hisoblashning hojati bo'lmaydi: {file_path: (mtime, jpeg_bytes)}
 _photo_cache = {}
 
+# Telegram serverida saqlanib qolgan rasmlarning file_id'lari: {file_path: file_id}
+# Rasm bir marta yuborilgandan so'ng, keyingi safar shu file_id orqali
+# GitHub'dagi faylni qayta o'qimasdan, bir zumda yuboriladi.
+_file_id_cache = {}
+
 
 def get_safe_photo_bytes(path: str) -> bytes:
     """Berilgan rasm faylini Telegram talablariga mos (o'lchami xavfsiz,
@@ -101,6 +106,46 @@ def get_safe_photo(path: str) -> io.BytesIO:
     buf = io.BytesIO(data)
     buf.name = os.path.basename(path)  # Telegram uchun fayl nomi/format maslahati
     return buf
+
+
+async def send_cached_photo(message, path: str, **kwargs):
+    """Bitta rasmni yuboradi. Agar bu rasm avval yuborilgan bo'lsa,
+    xotiradagi Telegram file_id orqali (tezkor, GitHub'ga murojaat qilmasdan)
+    yuboradi. Aks holda diskdan o'qib yuboradi va natijadagi file_id'ni
+    keyingi safarlar uchun keshlaydi."""
+    cached_id = _file_id_cache.get(path)
+    photo_source = cached_id if cached_id else get_safe_photo(path)
+
+    sent_message = await message.reply_photo(photo=photo_source, **kwargs)
+
+    if not cached_id and sent_message.photo:
+        _file_id_cache[path] = sent_message.photo[-1].file_id
+
+    return sent_message
+
+
+async def send_cached_media_group(message, paths, caption: str):
+    """Bir nechta rasmni albom (media group) qilib yuboradi. Har bir rasm
+    uchun mumkin bo'lsa xotiradagi file_id ishlatiladi, aks holda diskdan
+    o'qib yuboriladi va natijadagi file_id'lar keshlanadi."""
+    media_group = []
+    for index, path in enumerate(paths):
+        cached_id = _file_id_cache.get(path)
+        media_source = cached_id if cached_id else get_safe_photo(path)
+        if index == 0:
+            media_group.append(
+                InputMediaPhoto(media=media_source, caption=caption, parse_mode=ParseMode.MARKDOWN)
+            )
+        else:
+            media_group.append(InputMediaPhoto(media=media_source))
+
+    sent_messages = await message.reply_media_group(media=media_group)
+
+    for path, sent_message in zip(paths, sent_messages):
+        if path not in _file_id_cache and sent_message.photo:
+            _file_id_cache[path] = sent_message.photo[-1].file_id
+
+    return sent_messages
 
 
 def get_lang(chat_id: int) -> str:
@@ -163,8 +208,9 @@ async def send_welcome(message, chat_id: int):
 
     try:
         if os.path.exists(exterior_path):
-            await message.reply_photo(
-                photo=get_safe_photo(exterior_path),
+            await send_cached_photo(
+                message,
+                exterior_path,
                 caption=texts["welcome"],
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=main_menu_keyboard(chat_id),
@@ -289,8 +335,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             if os.path.exists(image_path):
-                await query.message.reply_photo(
-                    photo=get_safe_photo(image_path),
+                await send_cached_photo(
+                    query.message,
+                    image_path,
                     caption=caption,
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -335,25 +382,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.MARKDOWN,
                 )
             elif len(existing_paths) == 1:
-                await query.message.reply_photo(
-                    photo=get_safe_photo(existing_paths[0]),
+                await send_cached_photo(
+                    query.message,
+                    existing_paths[0],
                     caption=caption,
                     parse_mode=ParseMode.MARKDOWN,
                 )
             else:
-                media_group = []
-                for index, path in enumerate(existing_paths):
-                    if index == 0:
-                        media_group.append(
-                            InputMediaPhoto(
-                                media=get_safe_photo(path),
-                                caption=caption,
-                                parse_mode=ParseMode.MARKDOWN,
-                            )
-                        )
-                    else:
-                        media_group.append(InputMediaPhoto(media=get_safe_photo(path)))
-                await query.message.reply_media_group(media=media_group)
+                await send_cached_media_group(query.message, existing_paths, caption)
         except Exception:
             # Rasm yuborishda kutilmagan xato bo'lsa (masalan fayl hajmi katta,
             # buzilgan fayl va h.k.) — bot "jim" qolmasin, aniq xabar va log beramiz.
@@ -420,3 +456,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
