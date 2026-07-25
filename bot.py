@@ -7,15 +7,18 @@ kichik Flask serveri ham ishlaydi (Render "Web Service" portni talab qiladi).
 """
 
 import os
+import io
 import logging
 import threading
 
+from PIL import Image
 from flask import Flask
 from telegram import (
     ReplyKeyboardMarkup,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     InputMediaPhoto,
+    InputFile,
     Update,
 )
 from telegram.constants import ParseMode
@@ -52,6 +55,45 @@ IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
 
 # Foydalanuvchi tilini xotirada saqlaymiz: {chat_id: "uz"/"ru"/"en"}
 user_lang = {}
+
+# Telegram fotosurat sifatida yuboriladigan rasmlar uchun talablar:
+# - eni + bo'yi yig'indisi 10000 pikseldan oshmasligi kerak
+# - tomonlar nisbati 20:1 dan oshmasligi kerak
+# Shu sababli har bir rasmni yuborishdan oldin xavfsiz o'lchamga moslaymiz.
+MAX_PHOTO_DIMENSION = 1600  # eng katta tomon shu qiymatdan oshmasin
+JPEG_QUALITY = 85
+
+# Qayta ishlangan rasmlarni xotirada keshlab qo'yamiz, shunda har safar
+# qayta hisoblashning hojati bo'lmaydi: {file_path: (mtime, jpeg_bytes)}
+_photo_cache = {}
+
+
+def get_safe_photo(path: str) -> InputFile:
+    """Berilgan rasm faylini Telegram talablariga mos (o'lchami xavfsiz,
+    JPEG formatida) InputFile obyekti sifatida qaytaradi. Natija xotirada
+    keshlanadi, fayl o'zgarmagan ekan qayta ishlanmaydi."""
+    mtime = os.path.getmtime(path)
+    cached = _photo_cache.get(path)
+
+    if cached and cached[0] == mtime:
+        data = cached[1]
+    else:
+        with Image.open(path) as img:
+            img = img.convert("RGB")
+            width, height = img.size
+            largest_side = max(width, height)
+            if largest_side > MAX_PHOTO_DIMENSION:
+                scale = MAX_PHOTO_DIMENSION / largest_side
+                new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+                img = img.resize(new_size, Image.LANCZOS)
+
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+            data = buffer.getvalue()
+
+        _photo_cache[path] = (mtime, data)
+
+    return InputFile(io.BytesIO(data), filename=os.path.basename(path))
 
 
 def get_lang(chat_id: int) -> str:
@@ -114,13 +156,12 @@ async def send_welcome(message, chat_id: int):
 
     try:
         if os.path.exists(exterior_path):
-            with open(exterior_path, "rb") as photo_file:
-                await message.reply_photo(
-                    photo=photo_file,
-                    caption=texts["welcome"],
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=main_menu_keyboard(chat_id),
-                )
+            await message.reply_photo(
+                photo=get_safe_photo(exterior_path),
+                caption=texts["welcome"],
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=main_menu_keyboard(chat_id),
+            )
         else:
             await message.reply_text(
                 texts["welcome"],
@@ -241,12 +282,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             if os.path.exists(image_path):
-                with open(image_path, "rb") as photo_file:
-                    await query.message.reply_photo(
-                        photo=photo_file,
-                        caption=caption,
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
+                await query.message.reply_photo(
+                    photo=get_safe_photo(image_path),
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
             else:
                 await query.message.reply_text(
                     f"{caption}\n\n{texts['photo_not_found']}",
@@ -281,19 +321,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(os.path.join(IMAGES_DIR, fn))
         ]
 
-        # Fayl hajmini tekshiramiz — Telegram fotosurat sifatida yuborilganda
-        # ~10 MB dan katta fayllarni rad etishi mumkin. Bunday hollarda
-        # aniq log yozamiz.
-        MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
-        for p in existing_paths:
-            size_mb = os.path.getsize(p) / (1024 * 1024)
-            if os.path.getsize(p) > MAX_PHOTO_BYTES:
-                logger.warning(
-                    "Rasm hajmi juda katta, Telegram rad etishi mumkin: %s (%.1f MB)",
-                    p,
-                    size_mb,
-                )
-
         try:
             if not existing_paths:
                 await query.message.reply_text(
@@ -301,31 +328,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.MARKDOWN,
                 )
             elif len(existing_paths) == 1:
-                with open(existing_paths[0], "rb") as photo_file:
-                    await query.message.reply_photo(
-                        photo=photo_file,
-                        caption=caption,
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
+                await query.message.reply_photo(
+                    photo=get_safe_photo(existing_paths[0]),
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
             else:
-                opened_files = [open(p, "rb") for p in existing_paths]
-                try:
-                    media_group = []
-                    for index, file_obj in enumerate(opened_files):
-                        if index == 0:
-                            media_group.append(
-                                InputMediaPhoto(
-                                    media=file_obj,
-                                    caption=caption,
-                                    parse_mode=ParseMode.MARKDOWN,
-                                )
+                media_group = []
+                for index, path in enumerate(existing_paths):
+                    if index == 0:
+                        media_group.append(
+                            InputMediaPhoto(
+                                media=get_safe_photo(path),
+                                caption=caption,
+                                parse_mode=ParseMode.MARKDOWN,
                             )
-                        else:
-                            media_group.append(InputMediaPhoto(media=file_obj))
-                    await query.message.reply_media_group(media=media_group)
-                finally:
-                    for file_obj in opened_files:
-                        file_obj.close()
+                        )
+                    else:
+                        media_group.append(InputMediaPhoto(media=get_safe_photo(path)))
+                await query.message.reply_media_group(media=media_group)
         except Exception:
             # Rasm yuborishda kutilmagan xato bo'lsa (masalan fayl hajmi katta,
             # buzilgan fayl va h.k.) — bot "jim" qolmasin, aniq xabar va log beramiz.
