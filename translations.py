@@ -392,4 +392,3 @@ ROOM_ORDER = ["standard", "twin", "superior", "suite"]
 
 # Xizmatlar (SPA/fitness) tartibi (rasm galereyasi uchun)
 AMENITY_ORDER = ["spa_zone", "pool", "hammam", "sauna", "gym"]
-
