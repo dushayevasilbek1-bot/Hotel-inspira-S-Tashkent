@@ -18,7 +18,6 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     InputMediaPhoto,
-    InputFile,
     Update,
 )
 from telegram.constants import ParseMode
@@ -68,32 +67,40 @@ JPEG_QUALITY = 85
 _photo_cache = {}
 
 
-def get_safe_photo(path: str) -> InputFile:
+def get_safe_photo_bytes(path: str) -> bytes:
     """Berilgan rasm faylini Telegram talablariga mos (o'lchami xavfsiz,
-    JPEG formatida) InputFile obyekti sifatida qaytaradi. Natija xotirada
+    JPEG formatida) xom bayt (bytes) ko'rinishida qaytaradi. Natija xotirada
     keshlanadi, fayl o'zgarmagan ekan qayta ishlanmaydi."""
     mtime = os.path.getmtime(path)
     cached = _photo_cache.get(path)
 
     if cached and cached[0] == mtime:
-        data = cached[1]
-    else:
-        with Image.open(path) as img:
-            img = img.convert("RGB")
-            width, height = img.size
-            largest_side = max(width, height)
-            if largest_side > MAX_PHOTO_DIMENSION:
-                scale = MAX_PHOTO_DIMENSION / largest_side
-                new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
-                img = img.resize(new_size, Image.LANCZOS)
+        return cached[1]
 
-            buffer = io.BytesIO()
-            img.save(buffer, format="JPEG", quality=JPEG_QUALITY, optimize=True)
-            data = buffer.getvalue()
+    with Image.open(path) as img:
+        img = img.convert("RGB")
+        width, height = img.size
+        largest_side = max(width, height)
+        if largest_side > MAX_PHOTO_DIMENSION:
+            scale = MAX_PHOTO_DIMENSION / largest_side
+            new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+            img = img.resize(new_size, Image.LANCZOS)
 
-        _photo_cache[path] = (mtime, data)
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+        data = buffer.getvalue()
 
-    return InputFile(io.BytesIO(data), filename=os.path.basename(path))
+    _photo_cache[path] = (mtime, data)
+    return data
+
+
+def get_safe_photo(path: str) -> io.BytesIO:
+    """Bitta rasm yuborish uchun (reply_photo) — har safar yangi BytesIO
+    obyekti qaytaradi (fayl kabi, bir marta o'qiladi)."""
+    data = get_safe_photo_bytes(path)
+    buf = io.BytesIO(data)
+    buf.name = os.path.basename(path)  # Telegram uchun fayl nomi/format maslahati
+    return buf
 
 
 def get_lang(chat_id: int) -> str:
@@ -393,7 +400,14 @@ def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(30)
+        .build()
+    )
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("language", language_command))
