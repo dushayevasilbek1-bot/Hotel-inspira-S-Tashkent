@@ -4,6 +4,9 @@ Barcha bot matnlari shu yerda saqlanadi: o'zbek (kirill), rus, ingliz.
 Yangi savol/til qo'shish kerak bo'lsa, faqat shu faylni tahrirlash kifoya.
 """
 
+# Xonani onlayn band qilish uchun sayt manzili
+BOOKING_URL = "https://inspira-s.com/"
+
 TEXTS = {
     "uz": {
         "flag": "🇺🇿",
@@ -23,12 +26,13 @@ TEXTS = {
         "language_changed": "✅ Тил ўзгартирилди!",
         "menu": {
             "booking": "🏨 Хоналар тоифалари",
+            "book_now": "🛏 Хонани брон қилиш",
             "checkinout": "⏰ Кириш / Чиқиш",
             "breakfast": "🍽 Нонушта ва ресторан",
             "spa": "🏊 СПА ва фитнес",
             "services": "🛎 Қўшимча хизматлар",
             "location": "📍 Манзил ва трансфер",
-            "rooms_photo": "🖼 Хоналар расмлари",
+            "travel_agency": "✈️ Travel Agency",
             "contact": "📞 Администратор билан боғланиш",
             "language": "🌐 Тилни ўзгартириш",
             "back": "🔙 Орқага",
@@ -47,10 +51,15 @@ TEXTS = {
             ),
             "booking": (
                 "🏨 *Хоналар тоифалари*\n\n"
-                "Inspira-S меҳмонхонасида Standard (бир/икки кишилик), Twin, Superior ва "
-                "Suite (Люкс) тоифасидаги шинам хоналар мавжуд. Барча хоналар кондиционер, "
-                "Smart TV, сейф, мини-бар ва иш столи билан таъминланган.\n\n"
-                "Хоналарнинг расмларини кўриш учун «🖼 Хоналар расмлари» тугмасини босинг."
+                "Inspira-S меҳмонхонасида турли эҳтиёж ва бюджетга мос шинам хоналар мавжуд. "
+                "Барча хоналар кондиционер, Smart TV, сейф, мини-бар ва иш столи билан "
+                "таъминланган.\n\n"
+                "Ҳар бир тоифанинг расми ва тавсифини кўриш учун қуйидаги рўйхатдан бирини "
+                "танланг 👇"
+            ),
+            "book_now": (
+                "🛏 *Хонани онлайн брон қилиш*\n\n"
+                "Энг қулай нарх ва бўш хоналарни кўриш учун расмий сайтимизга ўтинг:"
             ),
             "breakfast": (
                 "🍽 *Нонушта ва ресторан*\n\n"
@@ -77,6 +86,21 @@ TEXTS = {
                 "бўлган масофа тахминан 7 км (автомобилда 15-20 дақиқа). Шунингдек, биз сиз "
                 "учун индивидуал трансфер хизматини ташкил қилишимиз мумкин."
             ),
+            "travel_agency": (
+                "✈️ *Ҳамкоримиз — Travel Agency (hhh.travel)*\n\n"
+                "Экскурсия, трансфер, чипта ёки виза бўйича ёрдамга муҳтож бўлсангиз, "
+                "ишончли ҳамкоримиз хизматларидан фойдаланишингиз мумкин:\n\n"
+                "🏨 Меҳмонхоналарни брон қилиш\n"
+                "🗺 Экскурсиялар\n"
+                "🚐 Трансфер хизматлари\n"
+                "🙋 Индивидуал ёрдам\n"
+                "✈️ Авиа / темир йўл чипталари\n"
+                "🛂 Виза бўйича кўмак\n\n"
+                "📍 Ўзбекистон бўйлаб хизмат кўрсатамиз\n\n"
+                "📞 +998 90 033 88 80\n"
+                "✉️ hhh.travel1@gmail.com\n"
+                "🌐 www.hhhtravel.uz"
+            ),
             "contact": (
                 "📞 *Администратор билан боғланиш*\n\n"
                 "Хонадаги ички телефон орқали «0» тугмасини босиб ёки бевосита қуйидаги "
@@ -84,24 +108,33 @@ TEXTS = {
                 "☎️ +998 (71) XXX-XX-XX"
             ),
         },
+        "book_now_button": "🌐 Сайтга ўтиш",
         "rooms": {
             "title": "🖼 Илтимос, хона тоифасини танланг:",
             "back_to_rooms": "🔙 Хоналар рўйхатига",
-            "standard": {
-                "name": "Standard",
-                "desc": "Қулай бир ёки икки кишилик хона. Кондиционер, Smart TV, сейф ва иш столи мавжуд.",
+            "twin_room": {
+                "name": "Twin Room",
+                "desc": "Иккита алоҳида каравотли қулай хона — дугона ёки ҳамкасблар билан сафар учун идеал.",
             },
-            "twin": {
-                "name": "Twin",
-                "desc": "Иккита алоҳида каравотли хона — дугона ёки ҳамкасблар билан дам олиш учун қулай.",
+            "double_room": {
+                "name": "Double Room",
+                "desc": "Бир катта кровать билан жиҳозланган, икки киши учун қулай хона.",
             },
-            "superior": {
-                "name": "Superior",
-                "desc": "Кенгроқ майдонли, замонавий дизайндаги қулай хона.",
+            "deluxe_room": {
+                "name": "Deluxe Room",
+                "desc": "Кенгроқ майдон ва замонавий дизайндаги юқори даражадаги қулайликка эга хона.",
             },
-            "suite": {
-                "name": "Suite (Люкс)",
-                "desc": "Меҳмонхонанинг энг юқори тоифадаги хонаси — алоҳида ётоқхона ва меҳмон хонаси билан.",
+            "junior_suite": {
+                "name": "Junior Suite",
+                "desc": "Ётоқ ва дам олиш зонаси бирлаштирилган, кенгроқ ва шинам хона.",
+            },
+            "corner_suite": {
+                "name": "Corner Suite",
+                "desc": "Бурчакда жойлашган, панорама ойналари билан кенг ёритилган хона.",
+            },
+            "suite_apartment": {
+                "name": "Suite Apartment",
+                "desc": "Алоҳида ётоқхона ва меҳмонхонага эга, энг юқори тоифадаги апартамент туридаги хона.",
             },
         },
         "photo_not_found": "🙏 Кечирасиз, бу хонанинг расми ҳозирча юкланмаган. Тез орада қўшамиз.",
@@ -148,12 +181,13 @@ TEXTS = {
         "language_changed": "✅ Язык изменён!",
         "menu": {
             "booking": "🏨 Категории номеров",
+            "book_now": "🛏 Забронировать номер",
             "checkinout": "⏰ Заезд / Выезд",
             "breakfast": "🍽 Завтрак и ресторан",
             "spa": "🏊 СПА и фитнес",
             "services": "🛎 Дополнительные услуги",
             "location": "📍 Локация и трансфер",
-            "rooms_photo": "🖼 Фото номеров",
+            "travel_agency": "✈️ Travel Agency",
             "contact": "📞 Связь с администратором",
             "language": "🌐 Изменить язык",
             "back": "🔙 Назад",
@@ -172,11 +206,15 @@ TEXTS = {
             ),
             "booking": (
                 "🏨 *Категории номеров*\n\n"
-                "В отеле Inspira-S представлены комфортабельные номера различных категорий: "
-                "Standard (Одноместный/Двухместный), Twin, Superior и Suite (Люкс). Все "
-                "номера оснащены кондиционером, Smart TV, сейфом, мини-баром и рабочим "
-                "столом.\n\n"
-                "Чтобы посмотреть фото номеров, нажмите «🖼 Фото номеров»."
+                "В отеле Inspira-S представлены комфортабельные номера на любой вкус и "
+                "бюджет. Все номера оснащены кондиционером, Smart TV, сейфом, мини-баром и "
+                "рабочим столом.\n\n"
+                "Чтобы увидеть фото и описание каждой категории, выберите из списка ниже 👇"
+            ),
+            "book_now": (
+                "🛏 *Онлайн-бронирование номера*\n\n"
+                "Чтобы увидеть лучшие цены и свободные номера, перейдите на наш "
+                "официальный сайт:"
             ),
             "breakfast": (
                 "🍽 *Завтрак и ресторан*\n\n"
@@ -205,6 +243,21 @@ TEXTS = {
                 "аэропорта Ташкента — около 7 км (15–20 минут на авто). Мы также можем "
                 "организовать для вас индивидуальный трансфер."
             ),
+            "travel_agency": (
+                "✈️ *Наш партнёр — Travel Agency (hhh.travel)*\n\n"
+                "Если вам нужна помощь с экскурсиями, трансфером, билетами или визой, вы "
+                "можете обратиться к нашему надёжному партнёру:\n\n"
+                "🏨 Бронирование проживания\n"
+                "🗺 Экскурсии\n"
+                "🚐 Трансферы\n"
+                "🙋 Индивидуальная поддержка\n"
+                "✈️ Авиа/ж-д билеты\n"
+                "🛂 Визовая поддержка\n\n"
+                "📍 По всему Узбекистану\n\n"
+                "📞 +998 90 033 88 80\n"
+                "✉️ hhh.travel1@gmail.com\n"
+                "🌐 www.hhhtravel.uz"
+            ),
             "contact": (
                 "📞 *Связь с администратором*\n\n"
                 "Вы можете позвонить на рецепцию из номера по внутреннему номеру «0» или "
@@ -212,24 +265,33 @@ TEXTS = {
                 "☎️ +998 (71) XXX-XX-XX"
             ),
         },
+        "book_now_button": "🌐 Перейти на сайт",
         "rooms": {
             "title": "🖼 Пожалуйста, выберите категорию номера:",
             "back_to_rooms": "🔙 К списку номеров",
-            "standard": {
-                "name": "Standard",
-                "desc": "Уютный одно- или двухместный номер. Кондиционер, Smart TV, сейф и рабочий стол.",
+            "twin_room": {
+                "name": "Twin Room",
+                "desc": "Номер с двумя отдельными кроватями — идеален для друзей или коллег.",
             },
-            "twin": {
-                "name": "Twin",
-                "desc": "Номер с двумя отдельными кроватями — удобен для друзей или коллег.",
+            "double_room": {
+                "name": "Double Room",
+                "desc": "Уютный номер с одной большой кроватью для двоих.",
             },
-            "superior": {
-                "name": "Superior",
-                "desc": "Просторный номер с современным дизайном.",
+            "deluxe_room": {
+                "name": "Deluxe Room",
+                "desc": "Просторный номер повышенной комфортности с современным дизайном.",
             },
-            "suite": {
-                "name": "Suite (Люкс)",
-                "desc": "Номер высшей категории — с отдельной спальней и гостиной зоной.",
+            "junior_suite": {
+                "name": "Junior Suite",
+                "desc": "Просторный номер с объединённой зоной сна и отдыха.",
+            },
+            "corner_suite": {
+                "name": "Corner Suite",
+                "desc": "Угловой номер с панорамными окнами и большим количеством естественного света.",
+            },
+            "suite_apartment": {
+                "name": "Suite Apartment",
+                "desc": "Номер апартаментного типа высшей категории с отдельной спальней и гостиной.",
             },
         },
         "photo_not_found": "🙏 Извините, фото этого номера пока не загружено. Скоро добавим.",
@@ -276,12 +338,13 @@ TEXTS = {
         "language_changed": "✅ Language changed!",
         "menu": {
             "booking": "🏨 Room categories",
+            "book_now": "🛏 Book a room",
             "checkinout": "⏰ Check-in / Check-out",
             "breakfast": "🍽 Breakfast & Restaurant",
             "spa": "🏊 SPA & Fitness",
             "services": "🛎 Additional services",
             "location": "📍 Location & Transfer",
-            "rooms_photo": "🖼 Room photos",
+            "travel_agency": "✈️ Travel Agency",
             "contact": "📞 Contact front desk",
             "language": "🌐 Change language",
             "back": "🔙 Back",
@@ -299,10 +362,16 @@ TEXTS = {
             ),
             "booking": (
                 "🏨 *Room categories*\n\n"
-                "Inspira-S offers comfortable rooms in several categories: Standard "
-                "(single/double), Twin, Superior, and Suite. All rooms are equipped with "
-                "air conditioning, a Smart TV, a safe, a mini-bar and a work desk.\n\n"
-                "Tap “🖼 Room photos” to see pictures of each room type."
+                "Inspira-S offers comfortable rooms to suit every need and budget. All "
+                "rooms are equipped with air conditioning, a Smart TV, a safe, a mini-bar "
+                "and a work desk.\n\n"
+                "To see a photo and description of each category, choose one from the list "
+                "below 👇"
+            ),
+            "book_now": (
+                "🛏 *Book a room online*\n\n"
+                "To see the best rates and room availability, please visit our official "
+                "website:"
             ),
             "breakfast": (
                 "🍽 *Breakfast & Restaurant*\n\n"
@@ -329,6 +398,21 @@ TEXTS = {
                 "Tashkent International Airport is about 7 km (15–20 minutes by car). We "
                 "can also arrange an individual transfer for you."
             ),
+            "travel_agency": (
+                "✈️ *Our partner — Travel Agency (hhh.travel)*\n\n"
+                "If you need help with excursions, transfers, tickets or a visa, you can "
+                "reach out to our trusted partner:\n\n"
+                "🏨 Booking accommodations\n"
+                "🗺 Excursions\n"
+                "🚐 Transport\n"
+                "🙋 Individual support\n"
+                "✈️ Avia / Railway tickets\n"
+                "🛂 Visa support\n\n"
+                "📍 Across all of Uzbekistan\n\n"
+                "📞 +998 90 033 88 80\n"
+                "✉️ hhh.travel1@gmail.com\n"
+                "🌐 www.hhhtravel.uz"
+            ),
             "contact": (
                 "📞 *Contact front desk*\n\n"
                 "You can call the front desk from your room by dialing “0”, or directly "
@@ -336,24 +420,33 @@ TEXTS = {
                 "☎️ +998 (71) XXX-XX-XX"
             ),
         },
+        "book_now_button": "🌐 Visit website",
         "rooms": {
             "title": "🖼 Please choose a room category:",
             "back_to_rooms": "🔙 Back to room list",
-            "standard": {
-                "name": "Standard",
-                "desc": "A cozy single or double room with air conditioning, Smart TV, safe and a work desk.",
+            "twin_room": {
+                "name": "Twin Room",
+                "desc": "A room with two separate beds — perfect for friends or colleagues traveling together.",
             },
-            "twin": {
-                "name": "Twin",
-                "desc": "A room with two separate beds — great for friends or colleagues traveling together.",
+            "double_room": {
+                "name": "Double Room",
+                "desc": "A cozy room with one large bed for two guests.",
             },
-            "superior": {
-                "name": "Superior",
-                "desc": "A more spacious room with a modern design.",
+            "deluxe_room": {
+                "name": "Deluxe Room",
+                "desc": "A more spacious room with an enhanced comfort level and modern design.",
             },
-            "suite": {
-                "name": "Suite",
-                "desc": "Our top-category room with a separate bedroom and living area.",
+            "junior_suite": {
+                "name": "Junior Suite",
+                "desc": "A spacious room combining a sleeping area and a lounge area.",
+            },
+            "corner_suite": {
+                "name": "Corner Suite",
+                "desc": "A corner room with panoramic windows and plenty of natural light.",
+            },
+            "suite_apartment": {
+                "name": "Suite Apartment",
+                "desc": "Our top-category apartment-style room with a separate bedroom and living room.",
             },
         },
         "photo_not_found": "🙏 Sorry, the photo for this room hasn't been uploaded yet. We'll add it soon.",
@@ -388,7 +481,14 @@ TEXTS = {
 LANGUAGE_ORDER = ["uz", "ru", "en"]
 
 # Xona tasniflari tartibi (rasm galereyasi uchun)
-ROOM_ORDER = ["standard", "twin", "superior", "suite"]
+ROOM_ORDER = [
+    "twin_room",
+    "double_room",
+    "deluxe_room",
+    "junior_suite",
+    "corner_suite",
+    "suite_apartment",
+]
 
 # Xizmatlar (SPA/fitness) tartibi (rasm galereyasi uchun)
 AMENITY_ORDER = ["spa_zone", "pool", "hammam", "sauna", "gym"]
