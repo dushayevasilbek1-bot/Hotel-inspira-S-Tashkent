@@ -7,11 +7,9 @@ kichik Flask serveri ham ishlaydi (Render "Web Service" portni talab qiladi).
 """
 
 import os
-import io
 import logging
 import threading
 
-from PIL import Image
 from flask import Flask
 from telegram import (
     ReplyKeyboardMarkup,
@@ -30,17 +28,7 @@ from telegram.ext import (
     filters,
 )
 
-from translations import TEXTS, LANGUAGE_ORDER, ROOM_ORDER, AMENITY_ORDER
-
-# Har bir xizmat turiga tegishli rasm fayllari (images/ papkasida).
-# Bir nechta rasm bo'lsa, hammasi albom (media group) qilib yuboriladi.
-AMENITY_IMAGES = {
-    "spa_zone": ["spa_zone.jpg"],
-    "pool": ["pool_1.jpg", "pool_2.jpg"],
-    "hammam": ["hammam_1.jpg", "hammam_2.jpg"],
-    "sauna": ["sauna.jpg"],
-    "gym": ["gym_1.jpg", "gym_2.jpg"],
-}
+from translations import TEXTS, LANGUAGE_ORDER, ROOM_ORDER, AMENITY_ORDER, BOOKING_URL
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -52,100 +40,28 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 DEFAULT_LANG = "uz"
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
 
+# Har bir xona toifasiga tegishli rasm fayllari (images/ papkasida).
+# Bir nechta rasm bo'lsa, hammasi albom (media group) qilib yuboriladi.
+ROOM_IMAGES = {
+    "twin_room": ["twin_room.jpg"],
+    "double_room": ["double_room.jpg"],
+    "deluxe_room": ["deluxe_room.jpg"],
+    "junior_suite": ["junior_suite.jpg"],
+    "corner_suite": ["corner_suite.jpg"],
+    "suite_apartment": ["suite_apartment_1.jpg", "suite_apartment_2.jpg"],
+}
+
+# Har bir xizmat turiga tegishli rasm fayllari (images/ папкасида).
+AMENITY_IMAGES = {
+    "spa_zone": ["spa_zone.jpg"],
+    "pool": ["pool_1.jpg", "pool_2.jpg"],
+    "hammam": ["hammam_1.jpg", "hammam_2.jpg"],
+    "sauna": ["sauna.jpg"],
+    "gym": ["gym_1.jpg", "gym_2.jpg"],
+}
+
 # Foydalanuvchi tilini xotirada saqlaymiz: {chat_id: "uz"/"ru"/"en"}
 user_lang = {}
-
-# Telegram fotosurat sifatida yuboriladigan rasmlar uchun talablar:
-# - eni + bo'yi yig'indisi 10000 pikseldan oshmasligi kerak
-# - tomonlar nisbati 20:1 dan oshmasligi kerak
-# Shu sababli har bir rasmni yuborishdan oldin xavfsiz o'lchamga moslaymiz.
-MAX_PHOTO_DIMENSION = 1600  # eng katta tomon shu qiymatdan oshmasin
-JPEG_QUALITY = 85
-
-# Qayta ishlangan rasmlarni xotirada keshlab qo'yamiz, shunda har safar
-# qayta hisoblashning hojati bo'lmaydi: {file_path: (mtime, jpeg_bytes)}
-_photo_cache = {}
-
-# Telegram serverida saqlanib qolgan rasmlarning file_id'lari: {file_path: file_id}
-# Rasm bir marta yuborilgandan so'ng, keyingi safar shu file_id orqali
-# GitHub'dagi faylni qayta o'qimasdan, bir zumda yuboriladi.
-_file_id_cache = {}
-
-
-def get_safe_photo_bytes(path: str) -> bytes:
-    """Berilgan rasm faylini Telegram talablariga mos (o'lchami xavfsiz,
-    JPEG formatida) xom bayt (bytes) ko'rinishida qaytaradi. Natija xotirada
-    keshlanadi, fayl o'zgarmagan ekan qayta ishlanmaydi."""
-    mtime = os.path.getmtime(path)
-    cached = _photo_cache.get(path)
-
-    if cached and cached[0] == mtime:
-        return cached[1]
-
-    with Image.open(path) as img:
-        img = img.convert("RGB")
-        width, height = img.size
-        largest_side = max(width, height)
-        if largest_side > MAX_PHOTO_DIMENSION:
-            scale = MAX_PHOTO_DIMENSION / largest_side
-            new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
-            img = img.resize(new_size, Image.LANCZOS)
-
-        buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=JPEG_QUALITY, optimize=True)
-        data = buffer.getvalue()
-
-    _photo_cache[path] = (mtime, data)
-    return data
-
-
-def get_safe_photo(path: str) -> io.BytesIO:
-    """Bitta rasm yuborish uchun (reply_photo) — har safar yangi BytesIO
-    obyekti qaytaradi (fayl kabi, bir marta o'qiladi)."""
-    data = get_safe_photo_bytes(path)
-    buf = io.BytesIO(data)
-    buf.name = os.path.basename(path)  # Telegram uchun fayl nomi/format maslahati
-    return buf
-
-
-async def send_cached_photo(message, path: str, **kwargs):
-    """Bitta rasmni yuboradi. Agar bu rasm avval yuborilgan bo'lsa,
-    xotiradagi Telegram file_id orqali (tezkor, GitHub'ga murojaat qilmasdan)
-    yuboradi. Aks holda diskdan o'qib yuboradi va natijadagi file_id'ni
-    keyingi safarlar uchun keshlaydi."""
-    cached_id = _file_id_cache.get(path)
-    photo_source = cached_id if cached_id else get_safe_photo(path)
-
-    sent_message = await message.reply_photo(photo=photo_source, **kwargs)
-
-    if not cached_id and sent_message.photo:
-        _file_id_cache[path] = sent_message.photo[-1].file_id
-
-    return sent_message
-
-
-async def send_cached_media_group(message, paths, caption: str):
-    """Bir nechta rasmni albom (media group) qilib yuboradi. Har bir rasm
-    uchun mumkin bo'lsa xotiradagi file_id ishlatiladi, aks holda diskdan
-    o'qib yuboriladi va natijadagi file_id'lar keshlanadi."""
-    media_group = []
-    for index, path in enumerate(paths):
-        cached_id = _file_id_cache.get(path)
-        media_source = cached_id if cached_id else get_safe_photo(path)
-        if index == 0:
-            media_group.append(
-                InputMediaPhoto(media=media_source, caption=caption, parse_mode=ParseMode.MARKDOWN)
-            )
-        else:
-            media_group.append(InputMediaPhoto(media=media_source))
-
-    sent_messages = await message.reply_media_group(media=media_group)
-
-    for path, sent_message in zip(paths, sent_messages):
-        if path not in _file_id_cache and sent_message.photo:
-            _file_id_cache[path] = sent_message.photo[-1].file_id
-
-    return sent_messages
 
 
 def get_lang(chat_id: int) -> str:
@@ -160,10 +76,11 @@ def t(chat_id: int):
 def main_menu_keyboard(chat_id: int) -> ReplyKeyboardMarkup:
     menu = t(chat_id)["menu"]
     buttons = [
-        [menu["booking"], menu["rooms_photo"]],
+        [menu["booking"], menu["book_now"]],
         [menu["checkinout"], menu["breakfast"]],
         [menu["spa"], menu["services"]],
-        [menu["location"], menu["contact"]],
+        [menu["location"], menu["travel_agency"]],
+        [menu["contact"]],
         [menu["language"]],
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
@@ -197,6 +114,61 @@ def amenities_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
+def book_now_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    label = t(chat_id)["book_now_button"]
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=BOOKING_URL)]])
+
+
+async def reply_photo_or_album(message, caption: str, filenames, reply_markup=None):
+    """Berilgan fayl nomlari ro'yxatidan mavjudlarini rasm (bitta bo'lsa) yoki
+    albom (bir nechta bo'lsa) qilib yuboradi. Agar hech biri topilmasa, False
+    qaytaradi — chaqiruvchi funksiya fallback matnni o'zi yuborishi kerak.
+    reply_markup faqat bitta rasm holatida ishlatiladi (albomlar reply_markup'ni
+    qo'llab-quvvatlamaydi)."""
+    existing_paths = [
+        os.path.join(IMAGES_DIR, fn)
+        for fn in filenames
+        if os.path.exists(os.path.join(IMAGES_DIR, fn))
+    ]
+
+    if not existing_paths:
+        return False
+
+    if len(existing_paths) == 1:
+        with open(existing_paths[0], "rb") as photo_file:
+            await message.reply_photo(
+                photo=photo_file,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup,
+            )
+    else:
+        opened_files = [open(p, "rb") for p in existing_paths]
+        try:
+            media_group = []
+            for index, file_obj in enumerate(opened_files):
+                if index == 0:
+                    media_group.append(
+                        InputMediaPhoto(
+                            media=file_obj,
+                            caption=caption,
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                    )
+                else:
+                    media_group.append(InputMediaPhoto(media=file_obj))
+            await message.reply_media_group(media=media_group)
+            if reply_markup is not None:
+                # Albomlar reply_markup qabul qilmaydi, shuning uchun uni
+                # alohida (bo'sh) xabar bilan yuboramiz
+                await message.reply_text("👇", reply_markup=reply_markup)
+        finally:
+            for file_obj in opened_files:
+                file_obj.close()
+
+    return True
+
+
 # ---------- Buyruqlar (Commands) ----------
 
 async def send_welcome(message, chat_id: int):
@@ -204,30 +176,24 @@ async def send_welcome(message, chat_id: int):
     mavjud bo'lsa, uni rasm ostidagi izoh (caption) sifatida yuboradi, aks holda oddiy
     matn ko'rinishida yuboradi."""
     texts = t(chat_id)
-    exterior_path = os.path.join(IMAGES_DIR, "exterior.jpg")
-
-    try:
-        if os.path.exists(exterior_path):
-            await send_cached_photo(
-                message,
-                exterior_path,
-                caption=texts["welcome"],
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=main_menu_keyboard(chat_id),
-            )
-        else:
-            await message.reply_text(
-                texts["welcome"],
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=main_menu_keyboard(chat_id),
-            )
-    except Exception:
-        logger.exception("Xush kelibsiz rasmini yuborishda xato: %s", exterior_path)
+    markup = main_menu_keyboard(chat_id)
+    sent = await reply_photo_or_album(message, texts["welcome"], ["exterior.jpg"], reply_markup=markup)
+    if not sent:
         await message.reply_text(
             texts["welcome"],
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=main_menu_keyboard(chat_id),
+            reply_markup=markup,
         )
+
+
+async def send_travel_agency(message, chat_id: int):
+    """Travel Agency (hhh.travel) haqida ma'lumotni, agar logotip mavjud bo'lsa
+    rasm bilan birga, aks holda oddiy matn ko'rinishida yuboradi."""
+    texts = t(chat_id)
+    caption = texts["answers"]["travel_agency"]
+    sent = await reply_photo_or_album(message, caption, ["travel_agency_logo.jpg"])
+    if not sent:
+        await message.reply_text(caption, parse_mode=ParseMode.MARKDOWN)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -265,9 +231,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if text == menu["rooms_photo"]:
+    if text == menu["booking"]:
+        # Avval qisqa matnli javob, so'ng rasmli xona toifalari galereyasi
+        await update.message.reply_text(
+            texts["answers"]["booking"], parse_mode=ParseMode.MARKDOWN
+        )
         await update.message.reply_text(
             texts["rooms"]["title"], reply_markup=rooms_inline_keyboard(chat_id)
+        )
+        return
+
+    if text == menu["book_now"]:
+        await update.message.reply_text(
+            texts["answers"]["book_now"],
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=book_now_inline_keyboard(chat_id),
         )
         return
 
@@ -281,8 +259,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if text == menu["travel_agency"]:
+        await send_travel_agency(update.message, chat_id)
+        return
+
     key_map = {
-        menu["booking"]: "booking",
         menu["checkinout"]: "checkinout",
         menu["breakfast"]: "breakfast",
         menu["services"]: "services",
@@ -331,30 +312,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texts = t(chat_id)
         room = texts["rooms"][room_key]
         caption = f"*{room['name']}*\n\n{room['desc']}"
-        image_path = os.path.join(IMAGES_DIR, f"{room_key}.jpg")
+        filenames = ROOM_IMAGES.get(room_key, [f"{room_key}.jpg"])
 
-        try:
-            if os.path.exists(image_path):
-                await send_cached_photo(
-                    query.message,
-                    image_path,
-                    caption=caption,
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-            else:
-                await query.message.reply_text(
-                    f"{caption}\n\n{texts['photo_not_found']}",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-        except Exception:
-            logger.exception(
-                "Xona rasmini yuborishda xato: room_key=%s, fayl=%s",
-                room_key,
-                image_path,
-            )
+        sent = await reply_photo_or_album(query.message, caption, filenames)
+        if not sent:
             await query.message.reply_text(
-                f"{caption}\n\n⚠️ Rasmni yuborishda texnik xatolik yuz berdi. "
-                f"Iltimos keyinroq urinib ko'ring yoki administratorga xabar bering.",
+                f"{caption}\n\n{texts['photo_not_found']}",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -369,38 +332,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amenity = texts["amenities"][amenity_key]
         caption = f"*{amenity['name']}*\n\n{amenity['desc']}"
         filenames = AMENITY_IMAGES.get(amenity_key, [])
-        existing_paths = [
-            os.path.join(IMAGES_DIR, fn)
-            for fn in filenames
-            if os.path.exists(os.path.join(IMAGES_DIR, fn))
-        ]
 
-        try:
-            if not existing_paths:
-                await query.message.reply_text(
-                    f"{caption}\n\n{texts['photo_not_found']}",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-            elif len(existing_paths) == 1:
-                await send_cached_photo(
-                    query.message,
-                    existing_paths[0],
-                    caption=caption,
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-            else:
-                await send_cached_media_group(query.message, existing_paths, caption)
-        except Exception:
-            # Rasm yuborishda kutilmagan xato bo'lsa (masalan fayl hajmi katta,
-            # buzilgan fayl va h.k.) — bot "jim" qolmasin, aniq xabar va log beramiz.
-            logger.exception(
-                "Amenity rasm(lar)ini yuborishda xato: amenity_key=%s, fayllar=%s",
-                amenity_key,
-                existing_paths,
-            )
+        sent = await reply_photo_or_album(query.message, caption, filenames)
+        if not sent:
             await query.message.reply_text(
-                f"{caption}\n\n⚠️ Rasmni yuborishda texnik xatolik yuz berdi. "
-                f"Iltimos keyinroq urinib ko'ring yoki administratorga xabar bering.",
+                f"{caption}\n\n{texts['photo_not_found']}",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -436,14 +372,7 @@ def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    application = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .read_timeout(30)
-        .write_timeout(30)
-        .connect_timeout(30)
-        .build()
-    )
+    application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("language", language_command))
@@ -456,4 +385,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
