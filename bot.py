@@ -28,7 +28,7 @@ from telegram.ext import (
     filters,
 )
 
-from translations import TEXTS, LANGUAGE_ORDER, ROOM_ORDER, AMENITY_ORDER, BOOKING_URL
+from translations import TEXTS, LANGUAGE_ORDER, ROOM_ORDER, AMENITY_ORDER, CONFERENCE_ORDER, BOOKING_URL
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -60,6 +60,13 @@ AMENITY_IMAGES = {
     "gym": ["gym_1.jpg", "gym_2.jpg"],
 }
 
+# Har bir konferens zaliga tegishli rasm fayllari (images/ papkasida).
+# Har birida 3 tadan rasm bor — hammasi albom (media group) qilib yuboriladi.
+CONFERENCE_IMAGES = {
+    "conference_hall": ["conference_hall_1.jpg", "conference_hall_2.jpg", "conference_hall_3.jpg"],
+    "summit_room": ["summit_room_1.jpg", "summit_room_2.jpg", "summit_room_3.jpg"],
+}
+
 # Foydalanuvchi tilini xotirada saqlaymiz: {chat_id: "uz"/"ru"/"en"}
 user_lang = {}
 
@@ -80,7 +87,7 @@ def main_menu_keyboard(chat_id: int) -> ReplyKeyboardMarkup:
         [menu["checkinout"], menu["breakfast"]],
         [menu["spa"], menu["services"]],
         [menu["location"], menu["travel_agency"]],
-        [menu["contact"]],
+        [menu["conference"], menu["contact"]],
         [menu["language"]],
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
@@ -110,6 +117,16 @@ def amenities_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     for key in AMENITY_ORDER:
         buttons.append(
             [InlineKeyboardButton(amenities[key]["name"], callback_data=f"amenity:{key}")]
+        )
+    return InlineKeyboardMarkup(buttons)
+
+
+def conference_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    conference = t(chat_id)["conference"]
+    buttons = []
+    for key in CONFERENCE_ORDER:
+        buttons.append(
+            [InlineKeyboardButton(conference[key]["name"], callback_data=f"conference:{key}")]
         )
     return InlineKeyboardMarkup(buttons)
 
@@ -263,6 +280,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_travel_agency(update.message, chat_id)
         return
 
+    if text == menu["conference"]:
+        # Avval qisqa matnli javob, so'ng rasmli konferens zallari galereyasi
+        await update.message.reply_text(
+            texts["answers"]["conference"], parse_mode=ParseMode.MARKDOWN
+        )
+        await update.message.reply_text(
+            texts["conference"]["title"], reply_markup=conference_inline_keyboard(chat_id)
+        )
+        return
+
     key_map = {
         menu["checkinout"]: "checkinout",
         menu["breakfast"]: "breakfast",
@@ -345,6 +372,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data.startswith("conference:"):
+        conference_key = data.split(":", 1)[1]
+        texts = t(chat_id)
+        hall = texts["conference"][conference_key]
+        caption = f"*{hall['name']}*\n\n{hall['desc']}"
+        filenames = CONFERENCE_IMAGES.get(conference_key, [])
+
+        sent = await reply_photo_or_album(query.message, caption, filenames)
+        if not sent:
+            await query.message.reply_text(
+                f"{caption}\n\n{texts['photo_not_found']}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+        await query.message.reply_text(
+            texts["conference"]["title"], reply_markup=conference_inline_keyboard(chat_id)
+        )
+        return
+
 
 # ---------- Render uchun kichik Flask server (bot uxlab qolmasligi/portni ushlab turish uchun) ----------
 
@@ -385,3 +431,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
