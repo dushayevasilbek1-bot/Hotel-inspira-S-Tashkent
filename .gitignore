@@ -3,3 +3,1119 @@ __pycache__/
 .env
 venv/
 .venv/
+
+3.11.9
+
+# -*- coding: utf-8 -*-
+"""
+Inspira-S Tashkent Hotel — Telegram FAQ bot
+3 tilli (UZ / RU / EN), til almashtirish funksiyasi bor.
+Render.com'ning bepul (Web Service) tarifida ishlash uchun ichida
+kichik Flask serveri ham ishlaydi (Render "Web Service" portni talab qiladi).
+"""
+
+import os
+import logging
+import threading
+
+from flask import Flask
+from telegram import (
+    ReplyKeyboardMarkup,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    InputMediaPhoto,
+    Update,
+)
+from telegram.constants import ParseMode
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
+
+from translations import TEXTS, LANGUAGE_ORDER, ROOM_ORDER, AMENITY_ORDER, CONFERENCE_ORDER, BOOKING_URL
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+DEFAULT_LANG = "uz"
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
+
+# Har bir xona toifasiga tegishli rasm fayllari (images/ papkasida).
+# Bir nechta rasm bo'lsa, hammasi albom (media group) qilib yuboriladi.
+ROOM_IMAGES = {
+    "twin_room": ["twin_room.jpg"],
+    "double_room": ["double_room.jpg"],
+    "deluxe_room": ["deluxe_room.jpg"],
+    "junior_suite": ["junior_suite.jpg"],
+    "corner_suite": ["corner_suite.jpg"],
+    "suite_apartment": ["suite_apartment_1.jpg", "suite_apartment_2.jpg"],
+}
+
+# Har bir xizmat turiga tegishli rasm fayllari (images/ папкасида).
+AMENITY_IMAGES = {
+    "spa_zone": ["spa_zone.jpg"],
+    "pool": ["pool_1.jpg", "pool_2.jpg"],
+    "hammam": ["hammam_1.jpg", "hammam_2.jpg"],
+    "sauna": ["sauna.jpg"],
+    "gym": ["gym_1.jpg", "gym_2.jpg"],
+}
+
+# Har bir konferens zaliga tegishli rasm fayllari (images/ papkasida).
+# Har birida 3 tadan rasm bor — hammasi albom (media group) qilib yuboriladi.
+CONFERENCE_IMAGES = {
+    "conference_hall": ["conference_hall_1.jpg", "conference_hall_2.jpg", "conference_hall_3.jpg"],
+    "summit_room": ["summit_room_1.jpg", "summit_room_2.jpg", "summit_room_3.jpg"],
+}
+
+# Foydalanuvchi tilini xotirada saqlaymiz: {chat_id: "uz"/"ru"/"en"}
+user_lang = {}
+
+
+def get_lang(chat_id: int) -> str:
+    return user_lang.get(chat_id, DEFAULT_LANG)
+
+
+def t(chat_id: int):
+    """Shu foydalanuvchi tilidagi matnlar lug'atini qaytaradi."""
+    return TEXTS[get_lang(chat_id)]
+
+
+def main_menu_keyboard(chat_id: int) -> ReplyKeyboardMarkup:
+    menu = t(chat_id)["menu"]
+    buttons = [
+        [menu["booking"], menu["book_now"]],
+        [menu["checkinout"], menu["breakfast"]],
+        [menu["spa"], menu["services"]],
+        [menu["location"], menu["travel_agency"]],
+        [menu["conference"], menu["contact"]],
+        [menu["language"]],
+    ]
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
+
+
+def language_inline_keyboard() -> InlineKeyboardMarkup:
+    buttons = []
+    for code in LANGUAGE_ORDER:
+        label = f"{TEXTS[code]['flag']} {TEXTS[code]['name']}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"lang:{code}")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def rooms_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    rooms = t(chat_id)["rooms"]
+    buttons = []
+    for key in ROOM_ORDER:
+        buttons.append(
+            [InlineKeyboardButton(rooms[key]["name"], callback_data=f"room:{key}")]
+        )
+    return InlineKeyboardMarkup(buttons)
+
+
+def amenities_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    amenities = t(chat_id)["amenities"]
+    buttons = []
+    for key in AMENITY_ORDER:
+        buttons.append(
+            [InlineKeyboardButton(amenities[key]["name"], callback_data=f"amenity:{key}")]
+        )
+    return InlineKeyboardMarkup(buttons)
+
+
+def conference_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    conference = t(chat_id)["conference"]
+    buttons = []
+    for key in CONFERENCE_ORDER:
+        buttons.append(
+            [InlineKeyboardButton(conference[key]["name"], callback_data=f"conference:{key}")]
+        )
+    return InlineKeyboardMarkup(buttons)
+
+
+def book_now_inline_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    label = t(chat_id)["book_now_button"]
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=BOOKING_URL)]])
+
+
+async def reply_photo_or_album(message, caption: str, filenames, reply_markup=None):
+    """Berilgan fayl nomlari ro'yxatidan mavjudlarini rasm (bitta bo'lsa) yoki
+    albom (bir nechta bo'lsa) qilib yuboradi. Agar hech biri topilmasa, False
+    qaytaradi — chaqiruvchi funksiya fallback matnni o'zi yuborishi kerak.
+    reply_markup faqat bitta rasm holatida ishlatiladi (albomlar reply_markup'ni
+    qo'llab-quvvatlamaydi)."""
+    existing_paths = [
+        os.path.join(IMAGES_DIR, fn)
+        for fn in filenames
+        if os.path.exists(os.path.join(IMAGES_DIR, fn))
+    ]
+
+    if not existing_paths:
+        return False
+
+    if len(existing_paths) == 1:
+        with open(existing_paths[0], "rb") as photo_file:
+            await message.reply_photo(
+                photo=photo_file,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup,
+            )
+    else:
+        opened_files = [open(p, "rb") for p in existing_paths]
+        try:
+            media_group = []
+            for index, file_obj in enumerate(opened_files):
+                if index == 0:
+                    media_group.append(
+                        InputMediaPhoto(
+                            media=file_obj,
+                            caption=caption,
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                    )
+                else:
+                    media_group.append(InputMediaPhoto(media=file_obj))
+            await message.reply_media_group(media=media_group)
+            if reply_markup is not None:
+                # Albomlar reply_markup qabul qilmaydi, shuning uchun uni
+                # alohida (bo'sh) xabar bilan yuboramiz
+                await message.reply_text("👇", reply_markup=reply_markup)
+        finally:
+            for file_obj in opened_files:
+                file_obj.close()
+
+    return True
+
+
+# ---------- Buyruqlar (Commands) ----------
+
+async def send_welcome(message, chat_id: int):
+    """Xush kelibsiz xabarini yuboradi. Agar mehmonxona bino rasmi (images/exterior.jpg)
+    mavjud bo'lsa, uni rasm ostidagi izoh (caption) sifatida yuboradi, aks holda oddiy
+    matn ko'rinishida yuboradi."""
+    texts = t(chat_id)
+    markup = main_menu_keyboard(chat_id)
+    sent = await reply_photo_or_album(message, texts["welcome"], ["exterior.jpg"], reply_markup=markup)
+    if not sent:
+        await message.reply_text(
+            texts["welcome"],
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=markup,
+        )
+
+
+async def send_travel_agency(message, chat_id: int):
+    """Travel Agency (hhh.travel) haqida ma'lumotni, agar logotip mavjud bo'lsa
+    rasm bilan birga, aks holda oddiy matn ko'rinishida yuboradi."""
+    texts = t(chat_id)
+    caption = texts["answers"]["travel_agency"]
+    sent = await reply_photo_or_album(message, caption, ["travel_agency_logo.jpg"])
+    if not sent:
+        await message.reply_text(caption, parse_mode=ParseMode.MARKDOWN)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id not in user_lang:
+        # Til hali tanlanmagan bo'lsa — avval tilni so'raymiz
+        await update.message.reply_text(
+            TEXTS[DEFAULT_LANG]["choose_language"],
+            reply_markup=language_inline_keyboard(),
+        )
+    else:
+        await send_welcome(update.message, chat_id)
+
+
+async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        t(chat_id)["choose_language"],
+        reply_markup=language_inline_keyboard(),
+    )
+
+
+# ---------- Asosiy menyu tugmalari (matnli xabarlar) ----------
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    text = update.message.text
+    texts = t(chat_id)
+    menu = texts["menu"]
+
+    # Matnni menyu kaliti bilan solishtiramiz
+    if text == menu["language"]:
+        await update.message.reply_text(
+            texts["choose_language"], reply_markup=language_inline_keyboard()
+        )
+        return
+
+    if text == menu["booking"]:
+        # Avval qisqa matnli javob, so'ng rasmli xona toifalari galereyasi
+        await update.message.reply_text(
+            texts["answers"]["booking"], parse_mode=ParseMode.MARKDOWN
+        )
+        await update.message.reply_text(
+            texts["rooms"]["title"], reply_markup=rooms_inline_keyboard(chat_id)
+        )
+        return
+
+    if text == menu["book_now"]:
+        await update.message.reply_text(
+            texts["answers"]["book_now"],
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=book_now_inline_keyboard(chat_id),
+        )
+        return
+
+    if text == menu["spa"]:
+        # Avval qisqa matnli javob, so'ng rasmli xizmatlar galereyasi
+        await update.message.reply_text(
+            texts["answers"]["spa"], parse_mode=ParseMode.MARKDOWN
+        )
+        await update.message.reply_text(
+            texts["amenities"]["title"], reply_markup=amenities_inline_keyboard(chat_id)
+        )
+        return
+
+    if text == menu["travel_agency"]:
+        await send_travel_agency(update.message, chat_id)
+        return
+
+    if text == menu["conference"]:
+        # Avval qisqa matnli javob, so'ng rasmli konferens zallari galereyasi
+        await update.message.reply_text(
+            texts["answers"]["conference"], parse_mode=ParseMode.MARKDOWN
+        )
+        await update.message.reply_text(
+            texts["conference"]["title"], reply_markup=conference_inline_keyboard(chat_id)
+        )
+        return
+
+    key_map = {
+        menu["checkinout"]: "checkinout",
+        menu["breakfast"]: "breakfast",
+        menu["services"]: "services",
+        menu["location"]: "location",
+        menu["contact"]: "contact",
+    }
+
+    if text in key_map:
+        answer_key = key_map[text]
+        await update.message.reply_text(
+            texts["answers"][answer_key],
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=main_menu_keyboard(chat_id),
+        )
+        return
+
+    # Tanilmagan matn kelsa — asosiy menyuni qayta ko'rsatamiz
+    if chat_id not in user_lang:
+        await update.message.reply_text(
+            TEXTS[DEFAULT_LANG]["choose_language"],
+            reply_markup=language_inline_keyboard(),
+        )
+    else:
+        await send_welcome(update.message, chat_id)
+
+
+# ---------- Inline tugmalar (CallbackQuery) ----------
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    await query.answer()
+
+    data = query.data
+
+    if data.startswith("lang:"):
+        lang_code = data.split(":", 1)[1]
+        user_lang[chat_id] = lang_code
+        texts = TEXTS[lang_code]
+        await query.message.reply_text(texts["language_changed"])
+        await send_welcome(query.message, chat_id)
+        return
+
+    if data.startswith("room:"):
+        room_key = data.split(":", 1)[1]
+        texts = t(chat_id)
+        room = texts["rooms"][room_key]
+        caption = f"*{room['name']}*\n\n{room['desc']}"
+        filenames = ROOM_IMAGES.get(room_key, [f"{room_key}.jpg"])
+
+        sent = await reply_photo_or_album(query.message, caption, filenames)
+        if not sent:
+            await query.message.reply_text(
+                f"{caption}\n\n{texts['photo_not_found']}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+        await query.message.reply_text(
+            texts["rooms"]["title"], reply_markup=rooms_inline_keyboard(chat_id)
+        )
+        return
+
+    if data.startswith("amenity:"):
+        amenity_key = data.split(":", 1)[1]
+        texts = t(chat_id)
+        amenity = texts["amenities"][amenity_key]
+        caption = f"*{amenity['name']}*\n\n{amenity['desc']}"
+        filenames = AMENITY_IMAGES.get(amenity_key, [])
+
+        sent = await reply_photo_or_album(query.message, caption, filenames)
+        if not sent:
+            await query.message.reply_text(
+                f"{caption}\n\n{texts['photo_not_found']}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+        await query.message.reply_text(
+            texts["amenities"]["title"], reply_markup=amenities_inline_keyboard(chat_id)
+        )
+        return
+
+    if data.startswith("conference:"):
+        conference_key = data.split(":", 1)[1]
+        texts = t(chat_id)
+        hall = texts["conference"][conference_key]
+        caption = f"*{hall['name']}*\n\n{hall['desc']}"
+        filenames = CONFERENCE_IMAGES.get(conference_key, [])
+
+        sent = await reply_photo_or_album(query.message, caption, filenames)
+        if not sent:
+            await query.message.reply_text(
+                f"{caption}\n\n{texts['photo_not_found']}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+        await query.message.reply_text(
+            texts["conference"]["title"], reply_markup=conference_inline_keyboard(chat_id)
+        )
+        return
+
+
+# ---------- Render uchun kichik Flask server (bot uxlab qolmasligi/portni ushlab turish uchun) ----------
+
+flask_app = Flask(__name__)
+
+
+@flask_app.route("/")
+def health_check():
+    return "Inspira-S Tashkent hotel bot is running ✅"
+
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
+
+
+def main():
+    if not BOT_TOKEN:
+        raise RuntimeError(
+            "BOT_TOKEN topilmadi! Render'ning Environment bo'limida BOT_TOKEN "
+            "nomli environment variable qo'shing."
+        )
+
+    # Flask serverni alohida threadda ishga tushiramiz (Render portni talab qiladi)
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("language", language_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    application.add_handler(CallbackQueryHandler(handle_callback))
+
+    logger.info("Bot polling boshlandi...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()
+
+web: python bot.py
+
+# Inspira-S Tashkent — Telegram FAQ Bot
+
+3 tilli (🇺🇿 O'zbek, 🇷🇺 Rus, 🇬🇧 Ingliz) mehmonxona chat-boti. GitHub + Render.com orqali
+**butunlay bepul** deploy qilinadi.
+
+## 📁 Fayllar tuzilmasi
+
+```
+hotel-bot/
+├── bot.py
+├── translations.py
+├── requirements.txt
+├── Procfile
+├── runtime.txt
+├── .python-version
+├── render.yaml
+├── .gitignore
+└── images/
+    ├── README.md
+    ├── exterior.jpg
+    ├── travel_agency_logo.jpg
+    ├── twin_room.jpg / double_room.jpg / deluxe_room.jpg / junior_suite.jpg /
+    │   corner_suite.jpg / suite_apartment_1.jpg / suite_apartment_2.jpg
+    ├── spa_zone.jpg / pool_1-2.jpg / hammam_1-2.jpg / sauna.jpg / gym_1-2.jpg
+    └── conference_hall.jpg / summit_room.jpg   (⏳ hozircha yo'q, keyin qo'shiladi)
+```
+
+## Bo'limlar
+
+- 🏨 Xona toifalari — 6 ta toifa, har birida rasm + tavsif
+- 🛏 Xonani bron qilish — https://inspira-s.com/ ga olib boradi
+- ⏰ Kirish/Chiqish, 🍽 Nonushta, 🏊 SPA va fitnes, 🛎 Qo'shimcha xizmatlar, 📍 Manzil
+- ✈️ Travel Agency — hamkor (hhh.travel) ma'lumotlari
+- 🏛 Konferens zal — Конференц зал va Summit Room, rasm + tavsif
+- 📞 Administrator bilan bog'lanish — +998 78 140 10 01
+
+## Render'da deploy qilish
+
+1. GitHub'ga fayllarni yuklang (`images/` papkasi ichidagilar bilan birga).
+2. [render.com](https://render.com) da **New + → Web Service**, repo'ni ulang.
+3. Sozlamalar:
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `python bot.py`
+   - **Instance Type:** Free
+4. Environment Variables:
+   - `BOT_TOKEN` → BotFather'dan olingan token
+   - `PYTHON_VERSION` → `3.11.9`
+5. **Create Web Service** — bir necha daqiqadan so'ng bot ishga tushadi.
+
+## Matnlarni tahrirlash
+
+Barcha matnlar, narxlar, telefon raqamlari, sayt manzili (`BOOKING_URL`) — hammasi
+`translations.py` faylida. Faqat shu faylni tahrirlab, GitHub'ga qayta yuklash kifoya.
+
+services:
+  - type: web
+    name: inspira-s-hotel-bot
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python bot.py"
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+python-telegram-bot==20.7
+Flask==3.0.3
+
+python-3.11.9
+
+# -*- coding: utf-8 -*-
+"""
+Barcha bot matnlari shu yerda saqlanadi: o'zbek (kirill), rus, ingliz.
+Yangi savol/til qo'shish kerak bo'lsa, faqat shu faylni tahrirlash kifoya.
+"""
+
+# Xonani onlayn band qilish uchun sayt manzili
+BOOKING_URL = "https://inspira-s.com/"
+
+TEXTS = {
+    "uz": {
+        "flag": "🇺🇿",
+        "name": "O'zbekcha",
+        "welcome": (
+            "Ассалому алайкум! 👋\n\n"
+            "*Inspira-S Tashkent* (4★) меҳмонхонасининг расмий чат-ботига хуш келибсиз!\n\n"
+            "Мен сизга қуйидагилар бўйича ёрдам бераман:\n"
+            "• Хоналар ва уларнинг тоифалари\n"
+            "• Кириш / чиқиш вақтлари\n"
+            "• Нонушта, СПА ва бошқа хизматлар\n"
+            "• Манзил ва трансфер\n"
+            "• Администратор билан боғланиш\n\n"
+            "Қуйидаги тугмалардан бирини танланг 👇"
+        ),
+        "choose_language": "🌐 Илтимос, тилни танланг:",
+        "language_changed": "✅ Тил ўзгартирилди!",
+        "menu": {
+            "booking": "🏨 Хоналар тоифалари",
+            "book_now": "🛏 Хонани брон қилиш",
+            "checkinout": "⏰ Кириш / Чиқиш",
+            "breakfast": "🍽 Нонушта ва ресторан",
+            "spa": "🏊 СПА ва фитнес",
+            "services": "🛎 Қўшимча хизматлар",
+            "location": "📍 Манзил ва трансфер",
+            "travel_agency": "✈️ Travel Agency",
+            "conference": "🏛 Конференц-зал",
+            "contact": "📞 Администратор билан боғланиш",
+            "language": "🌐 Тилни ўзгартириш",
+            "back": "🔙 Орқага",
+        },
+        "answers": {
+            "checkinout": (
+                "⏰ *Кириш / Чиқиш вақтлари*\n\n"
+                "❓ *Кириш ва чиқиш вақти қандай?*\n"
+                "Меҳмонхонага жойлашиш (Check-in) вақти — 14:00 дан, хонани топшириш "
+                "(Check-out) вақти — 12:00 гача.\n\n"
+                "❓ *Эрта жойлашиш ёки кеч чиқиш мумкинми?*\n"
+                "Ҳа, бўш хоналар мавжуд бўлса, эрта жойлашиш ёки кеч чиқиш мумкин. "
+                "Қўшимча тўлов 50% (14:00 гача ёки 12:00дан кейин) ёки 100% (эрта тонгда "
+                "кафолатланган жойлашиш учун) ташкил этади. Аниқ маълумот учун қабул бўлими "
+                "билан боғланинг."
+            ),
+            "booking": (
+                "🏨 *Хоналар тоифалари*\n\n"
+                "Inspira-S меҳмонхонасида турли эҳтиёж ва бюджетга мос шинам хоналар мавжуд. "
+                "Барча хоналар кондиционер, Smart TV, сейф, мини-бар ва иш столи билан "
+                "таъминланган.\n\n"
+                "Ҳар бир тоифанинг расми ва тавсифини кўриш учун қуйидаги рўйхатдан бирини "
+                "танланг 👇"
+            ),
+            "book_now": (
+                "🛏 *Хонани онлайн брон қилиш*\n\n"
+                "Энг қулай нарх ва бўш хоналарни кўриш учун расмий сайтимизга ўтинг:"
+            ),
+            "breakfast": (
+                "🍽 *Нонушта ва ресторан*\n\n"
+                "Ҳа! Яшаш нархига швед столи форматидаги нонушта киритилган. Нонушта "
+                "ресторанда соат 07:00 дан 10:30 гача тортиқ этилади."
+            ),
+            "spa": (
+                "🏊 *СПА ва фитнес*\n\n"
+                "Ҳа, меҳмонларимиз учун ёпиқ бассейн, сауна, ҳаммом ва фитнес-зал хизмат "
+                "кўрсатади. Иш вақти: ҳар куни соат 08:00 дан 22:00 гача."
+            ),
+            "services": (
+                "🛎 *Қўшимча хизматлар*\n\n"
+                "📶 *Wi-Fi ва автотураргоҳ:*\n"
+                "Ҳа, меҳмонхонамизнинг барча ҳудудида юқори тезликдаги бепул Wi-Fi ва бепул "
+                "қўриқланадиган автотураргоҳ мавжуд.\n\n"
+                "📋 *Хорижий фуқароларни рўйхатга олиш:*\n"
+                "Ҳа, биз хорижий фуқаролар учун меҳмонхонада яшаш даври учун расмий "
+                "вақтинчалик рўйхатдан ўтиш хизматини бепул тақдим этамиз."
+            ),
+            "location": (
+                "📍 *Манзил ва трансфер*\n\n"
+                "Inspira-S меҳмонхонаси Тошкент марказида жойлашган. Халқаро аэропортгача "
+                "бўлган масофа тахминан 7 км (автомобилда 15-20 дақиқа). Шунингдек, биз сиз "
+                "учун индивидуал трансфер хизматини ташкил қилишимиз мумкин."
+            ),
+            "travel_agency": (
+                "✈️ *Ҳамкоримиз — Travel Agency (hhh.travel)*\n\n"
+                "Экскурсия, трансфер, чипта ёки виза бўйича ёрдамга муҳтож бўлсангиз, "
+                "ишончли ҳамкоримиз хизматларидан фойдаланишингиз мумкин:\n\n"
+                "🏨 Меҳмонхоналарни брон қилиш\n"
+                "🗺 Экскурсиялар\n"
+                "🚐 Трансфер хизматлари\n"
+                "🙋 Индивидуал ёрдам\n"
+                "✈️ Авиа / темир йўл чипталари\n"
+                "🛂 Виза бўйича кўмак\n\n"
+                "📍 Ўзбекистон бўйлаб хизмат кўрсатамиз\n\n"
+                "📞 +998 90 033 88 80\n"
+                "✉️ hhh.travel1@gmail.com\n"
+                "🌐 www.hhhtravel.uz"
+            ),
+            "conference": (
+                "🏛 *Конференц-зал хизматлари*\n\n"
+                "Бизнес учрашувлар, семинарлар ва тадбирлар учун икки хил залимиз мавжуд. "
+                "Батафсил маълумот учун қуйидагилардан бирини танланг 👇"
+            ),
+            "contact": (
+                "📞 *Администратор билан боғланиш*\n\n"
+                "Хонадаги ички телефон орқали «0» тугмасини босиб ёки бевосита қуйидаги "
+                "рақамга қўнғироқ қилиб қабул бўлими билан боғланишингиз мумкин:\n\n"
+                "☎️ +998 78 140 10 01"
+            ),
+        },
+        "book_now_button": "🌐 Сайтга ўтиш",
+        "rooms": {
+            "title": "🖼 Илтимос, хона тоифасини танланг:",
+            "back_to_rooms": "🔙 Хоналар рўйхатига",
+            "twin_room": {
+                "name": "Twin Room",
+                "desc": "Иккита алоҳида каравотли қулай хона — дугона ёки ҳамкасблар билан сафар учун идеал.",
+            },
+            "double_room": {
+                "name": "Double Room",
+                "desc": "Бир катта кровать билан жиҳозланган, икки киши учун қулай хона.",
+            },
+            "deluxe_room": {
+                "name": "Deluxe Room",
+                "desc": "Кенгроқ майдон ва замонавий дизайндаги юқори даражадаги қулайликка эга хона.",
+            },
+            "junior_suite": {
+                "name": "Junior Suite",
+                "desc": "Ётоқ ва дам олиш зонаси бирлаштирилган, кенгроқ ва шинам хона.",
+            },
+            "corner_suite": {
+                "name": "Corner Suite",
+                "desc": "Бурчакда жойлашган, панорама ойналари билан кенг ёритилган хона.",
+            },
+            "suite_apartment": {
+                "name": "Suite Apartment",
+                "desc": "Алоҳида ётоқхона ва меҳмонхонага эга, энг юқори тоифадаги апартамент туридаги хона.",
+            },
+        },
+        "photo_not_found": "🙏 Кечирасиз, бу хонанинг расми ҳозирча юкланмаган. Тез орада қўшамиз.",
+        "amenities": {
+            "title": "🖼 Илтимос, хизмат турини танланг:",
+            "back_to_list": "🔙 Хизматлар рўйхатига",
+            "spa_zone": {
+                "name": "СПА зона",
+                "desc": "Тинчланиш ва дам олиш учун махсус СПА зонаси — гидромассаж ванналари ва ором берувчи атмосфера билан.",
+            },
+            "pool": {
+                "name": "Ёпиқ бассейн",
+                "desc": "Йил бўйи очиқ бўлган иссиқ ёпиқ бассейн — сузиш ва дам олиш учун қулай.",
+            },
+            "hammam": {
+                "name": "Турк ҳаммоми",
+                "desc": "Анъанавий турк ҳаммоми — тошли исситгич ва миллий безак билан.",
+            },
+            "sauna": {
+                "name": "Фин саунаси",
+                "desc": "Иссиқ ёғочли фин саунаси — мушакларни бўшаштириш ва организмни тозалаш учун.",
+            },
+            "gym": {
+                "name": "Фитнес зал",
+                "desc": "Замонавий тренажёрлар билан жиҳозланган кенг фитнес зал.",
+            },
+        },
+        "conference": {
+            "title": "🖼 Илтимос, зални танланг:",
+            "back_to_list": "🔙 Заллар рўйхатига",
+            "conference_hall": {
+                "name": "Конференц-зал",
+                "desc": (
+                    "Сиғими: 100–120 киши\n\n"
+                    "Киритилган хизматлар:\n"
+                    "• Минерал сув, қоғоз ва қаламлар\n"
+                    "• Экран ва мультимедиа проектор\n"
+                    "• Товуш кучайтиргич тизими ва 1 та микрофон\n"
+                    "• Симсиз интернет уланиши\n"
+                    "• Ранг-баранг маркерли флипчарт\n"
+                    "• Трибуна, рўйхатга олиш столи"
+                ),
+            },
+            "summit_room": {
+                "name": "Summit Room",
+                "desc": (
+                    "Сиғими: 20–25 киши\n\n"
+                    "Киритилган хизматлар:\n"
+                    "• Минерал сув, қоғоз ва қаламлар\n"
+                    "• Экран ва мультимедиа проектор\n"
+                    "• Товуш кучайтиргич тизими ва 1 та микрофон\n"
+                    "• Симсиз интернет уланиши\n"
+                    "• Ранг-баранг маркерли флипчарт\n"
+                    "• Трибуна, рўйхатга олиш столи"
+                ),
+            },
+        },
+    },
+    "ru": {
+        "flag": "🇷🇺",
+        "name": "Русский",
+        "welcome": (
+            "Здравствуйте! 👋\n\n"
+            "Добро пожаловать в официальный чат-бот отеля *Inspira-S Tashkent* (4★)!\n\n"
+            "Я помогу вам узнать:\n"
+            "• Категории номеров\n"
+            "• Время заезда / выезда\n"
+            "• О завтраке, СПА и других услугах\n"
+            "• Расположение и трансфер\n"
+            "• Как связаться с администратором\n\n"
+            "Выберите один из пунктов меню ниже 👇"
+        ),
+        "choose_language": "🌐 Пожалуйста, выберите язык:",
+        "language_changed": "✅ Язык изменён!",
+        "menu": {
+            "booking": "🏨 Категории номеров",
+            "book_now": "🛏 Забронировать номер",
+            "checkinout": "⏰ Заезд / Выезд",
+            "breakfast": "🍽 Завтрак и ресторан",
+            "spa": "🏊 СПА и фитнес",
+            "services": "🛎 Дополнительные услуги",
+            "location": "📍 Локация и трансфер",
+            "travel_agency": "✈️ Travel Agency",
+            "conference": "🏛 Конференц-зал",
+            "contact": "📞 Связь с администратором",
+            "language": "🌐 Изменить язык",
+            "back": "🔙 Назад",
+        },
+        "answers": {
+            "checkinout": (
+                "⏰ *Время заезда и выезда*\n\n"
+                "❓ *Во сколько заезд и выезд в отеле?*\n"
+                "Стандартное время заезда (Check-in) — с 14:00. Время выезда (Check-out) — "
+                "до 12:00.\n\n"
+                "❓ *Возможен ли ранний заезд или поздний выезд?*\n"
+                "Да, ранний заезд или поздний выезд возможен при наличии свободных номеров. "
+                "Доплата составляет 50% от стоимости суток (до 14:00 или после 12:00) или "
+                "100% при гарантированном раннем заезде ранним утром. Пожалуйста, свяжитесь "
+                "с рецепцией для уточнения деталей."
+            ),
+            "booking": (
+                "🏨 *Категории номеров*\n\n"
+                "В отеле Inspira-S представлены комфортабельные номера на любой вкус и "
+                "бюджет. Все номера оснащены кондиционером, Smart TV, сейфом, мини-баром и "
+                "рабочим столом.\n\n"
+                "Чтобы увидеть фото и описание каждой категории, выберите из списка ниже 👇"
+            ),
+            "book_now": (
+                "🛏 *Онлайн-бронирование номера*\n\n"
+                "Чтобы увидеть лучшие цены и свободные номера, перейдите на наш "
+                "официальный сайт:"
+            ),
+            "breakfast": (
+                "🍽 *Завтрак и ресторан*\n\n"
+                "Да! В стоимость проживания включен богатый завтрак по системе «шведский "
+                "стол» (Buffet Breakfast), который подается в нашем ресторане с 07:00 до "
+                "10:30."
+            ),
+            "spa": (
+                "🏊 *СПА и фитнес*\n\n"
+                "Да, к услугам гостей наш оздоровительный комплекс: крытый бассейн, сауна, "
+                "хаммам и фитнес-зал. Часы работы: ежедневно с 08:00 до 22:00."
+            ),
+            "services": (
+                "🛎 *Дополнительные услуги*\n\n"
+                "📶 *Wi-Fi и парковка:*\n"
+                "Да, для всех проживающих гостей предоставляется бесплатный "
+                "высокоскоростной Wi-Fi на всей территории отеля, а также бесплатная "
+                "охраняемая парковка.\n\n"
+                "📋 *Регистрация иностранных граждан:*\n"
+                "Да, мы предоставляем официальную временную регистрацию для иностранных "
+                "граждан на весь период проживания в нашем отеле бесплатно."
+            ),
+            "location": (
+                "📍 *Локация и трансфер*\n\n"
+                "Отель Inspira-S расположен в центре Ташкента. Расстояние до Международного "
+                "аэропорта Ташкента — около 7 км (15–20 минут на авто). Мы также можем "
+                "организовать для вас индивидуальный трансфер."
+            ),
+            "travel_agency": (
+                "✈️ *Наш партнёр — Travel Agency (hhh.travel)*\n\n"
+                "Если вам нужна помощь с экскурсиями, трансфером, билетами или визой, вы "
+                "можете обратиться к нашему надёжному партнёру:\n\n"
+                "🏨 Бронирование проживания\n"
+                "🗺 Экскурсии\n"
+                "🚐 Трансферы\n"
+                "🙋 Индивидуальная поддержка\n"
+                "✈️ Авиа/ж-д билеты\n"
+                "🛂 Визовая поддержка\n\n"
+                "📍 По всему Узбекистану\n\n"
+                "📞 +998 90 033 88 80\n"
+                "✉️ hhh.travel1@gmail.com\n"
+                "🌐 www.hhhtravel.uz"
+            ),
+            "conference": (
+                "🏛 *Конференц-услуги*\n\n"
+                "Для деловых встреч, семинаров и мероприятий у нас есть два зала. "
+                "Выберите один из них, чтобы узнать подробности 👇"
+            ),
+            "contact": (
+                "📞 *Связь с администратором*\n\n"
+                "Вы можете позвонить на рецепцию из номера по внутреннему номеру «0» или "
+                "напрямую по телефону:\n\n"
+                "☎️ +998 78 140 10 01"
+            ),
+        },
+        "book_now_button": "🌐 Перейти на сайт",
+        "rooms": {
+            "title": "🖼 Пожалуйста, выберите категорию номера:",
+            "back_to_rooms": "🔙 К списку номеров",
+            "twin_room": {
+                "name": "Twin Room",
+                "desc": "Номер с двумя отдельными кроватями — идеален для друзей или коллег.",
+            },
+            "double_room": {
+                "name": "Double Room",
+                "desc": "Уютный номер с одной большой кроватью для двоих.",
+            },
+            "deluxe_room": {
+                "name": "Deluxe Room",
+                "desc": "Просторный номер повышенной комфортности с современным дизайном.",
+            },
+            "junior_suite": {
+                "name": "Junior Suite",
+                "desc": "Просторный номер с объединённой зоной сна и отдыха.",
+            },
+            "corner_suite": {
+                "name": "Corner Suite",
+                "desc": "Угловой номер с панорамными окнами и большим количеством естественного света.",
+            },
+            "suite_apartment": {
+                "name": "Suite Apartment",
+                "desc": "Номер апартаментного типа высшей категории с отдельной спальней и гостиной.",
+            },
+        },
+        "photo_not_found": "🙏 Извините, фото этого номера пока не загружено. Скоро добавим.",
+        "amenities": {
+            "title": "🖼 Пожалуйста, выберите услугу:",
+            "back_to_list": "🔙 К списку услуг",
+            "spa_zone": {
+                "name": "СПА-зона",
+                "desc": "Специальная зона для релаксации — с гидромассажными ваннами и расслабляющей атмосферой.",
+            },
+            "pool": {
+                "name": "Крытый бассейн",
+                "desc": "Тёплый крытый бассейн, доступный круглый год — идеально для плавания и отдыха.",
+            },
+            "hammam": {
+                "name": "Турецкий хаммам",
+                "desc": "Традиционный турецкий хаммам с каменным подогревом и национальным орнаментом.",
+            },
+            "sauna": {
+                "name": "Финская сауна",
+                "desc": "Тёплая деревянная финская сауна — для расслабления мышц и очищения организма.",
+            },
+            "gym": {
+                "name": "Фитнес-зал",
+                "desc": "Просторный фитнес-зал с современными тренажёрами.",
+            },
+        },
+        "conference": {
+            "title": "🖼 Пожалуйста, выберите зал:",
+            "back_to_list": "🔙 К списку залов",
+            "conference_hall": {
+                "name": "Конференц-зал",
+                "desc": (
+                    "Вместимость: 100–120 человек\n\n"
+                    "Включённые услуги:\n"
+                    "• Минеральная вода, бумага и карандаши\n"
+                    "• Экран и мультимедийный проектор\n"
+                    "• Система звукоусиления и 1 микрофон\n"
+                    "• Беспроводное подключение к интернету\n"
+                    "• Флипчарт с цветными маркерами\n"
+                    "• Трибуна, регистрационный стол"
+                ),
+            },
+            "summit_room": {
+                "name": "Summit Room",
+                "desc": (
+                    "Вместимость: 20–25 человек\n\n"
+                    "Включённые услуги:\n"
+                    "• Минеральная вода, бумага и карандаши\n"
+                    "• Экран и мультимедийный проектор\n"
+                    "• Система звукоусиления и 1 микрофон\n"
+                    "• Беспроводное подключение к интернету\n"
+                    "• Флипчарт с цветными маркерами\n"
+                    "• Трибуна, регистрационный стол"
+                ),
+            },
+        },
+    },
+    "en": {
+        "flag": "🇬🇧",
+        "name": "English",
+        "welcome": (
+            "Hello! 👋\n\n"
+            "Welcome to the official chat-bot of *Inspira-S Tashkent* Hotel (4★)!\n\n"
+            "I can help you with:\n"
+            "• Room categories\n"
+            "• Check-in / Check-out times\n"
+            "• Breakfast, SPA and other services\n"
+            "• Location and transfer\n"
+            "• Contacting our front desk\n\n"
+            "Please choose an option below 👇"
+        ),
+        "choose_language": "🌐 Please choose a language:",
+        "language_changed": "✅ Language changed!",
+        "menu": {
+            "booking": "🏨 Room categories",
+            "book_now": "🛏 Book a room",
+            "checkinout": "⏰ Check-in / Check-out",
+            "breakfast": "🍽 Breakfast & Restaurant",
+            "spa": "🏊 SPA & Fitness",
+            "services": "🛎 Additional services",
+            "location": "📍 Location & Transfer",
+            "travel_agency": "✈️ Travel Agency",
+            "conference": "🏛 Conference Hall",
+            "contact": "📞 Contact front desk",
+            "language": "🌐 Change language",
+            "back": "🔙 Back",
+        },
+        "answers": {
+            "checkinout": (
+                "⏰ *Check-in / Check-out times*\n\n"
+                "❓ *What time is check-in and check-out?*\n"
+                "Standard check-in time is from 14:00. Check-out time is until 12:00.\n\n"
+                "❓ *Is early check-in or late check-out possible?*\n"
+                "Yes, early check-in or late check-out is possible subject to room "
+                "availability. An extra charge of 50% of the nightly rate applies (before "
+                "14:00 or after 12:00), or 100% for a guaranteed early-morning check-in. "
+                "Please contact the front desk for details."
+            ),
+            "booking": (
+                "🏨 *Room categories*\n\n"
+                "Inspira-S offers comfortable rooms to suit every need and budget. All "
+                "rooms are equipped with air conditioning, a Smart TV, a safe, a mini-bar "
+                "and a work desk.\n\n"
+                "To see a photo and description of each category, choose one from the list "
+                "below 👇"
+            ),
+            "book_now": (
+                "🛏 *Book a room online*\n\n"
+                "To see the best rates and room availability, please visit our official "
+                "website:"
+            ),
+            "breakfast": (
+                "🍽 *Breakfast & Restaurant*\n\n"
+                "Yes! Breakfast is included in the room rate — a rich buffet breakfast "
+                "served in our restaurant daily from 07:00 to 10:30."
+            ),
+            "spa": (
+                "🏊 *SPA & Fitness*\n\n"
+                "Yes, guests can enjoy our wellness complex: indoor pool, sauna, hammam and "
+                "fitness center. Opening hours: daily from 08:00 to 22:00."
+            ),
+            "services": (
+                "🛎 *Additional services*\n\n"
+                "📶 *Wi-Fi & Parking:*\n"
+                "Yes, free high-speed Wi-Fi is available throughout the hotel for all "
+                "guests, along with free guarded parking.\n\n"
+                "📋 *Foreign guest registration:*\n"
+                "Yes, we provide official temporary registration for foreign citizens for "
+                "the entire duration of their stay, free of charge."
+            ),
+            "location": (
+                "📍 *Location & Transfer*\n\n"
+                "Inspira-S Hotel is located in the center of Tashkent. The distance to "
+                "Tashkent International Airport is about 7 km (15–20 minutes by car). We "
+                "can also arrange an individual transfer for you."
+            ),
+            "travel_agency": (
+                "✈️ *Our partner — Travel Agency (hhh.travel)*\n\n"
+                "If you need help with excursions, transfers, tickets or a visa, you can "
+                "reach out to our trusted partner:\n\n"
+                "🏨 Booking accommodations\n"
+                "🗺 Excursions\n"
+                "🚐 Transport\n"
+                "🙋 Individual support\n"
+                "✈️ Avia / Railway tickets\n"
+                "🛂 Visa support\n\n"
+                "📍 Across all of Uzbekistan\n\n"
+                "📞 +998 90 033 88 80\n"
+                "✉️ hhh.travel1@gmail.com\n"
+                "🌐 www.hhhtravel.uz"
+            ),
+            "conference": (
+                "🏛 *Conference facilities*\n\n"
+                "We offer two halls for business meetings, seminars and events. "
+                "Choose one below for more details 👇"
+            ),
+            "contact": (
+                "📞 *Contact front desk*\n\n"
+                "You can call the front desk from your room by dialing “0”, or directly "
+                "at:\n\n"
+                "☎️ +998 78 140 10 01"
+            ),
+        },
+        "book_now_button": "🌐 Visit website",
+        "rooms": {
+            "title": "🖼 Please choose a room category:",
+            "back_to_rooms": "🔙 Back to room list",
+            "twin_room": {
+                "name": "Twin Room",
+                "desc": "A room with two separate beds — perfect for friends or colleagues traveling together.",
+            },
+            "double_room": {
+                "name": "Double Room",
+                "desc": "A cozy room with one large bed for two guests.",
+            },
+            "deluxe_room": {
+                "name": "Deluxe Room",
+                "desc": "A more spacious room with an enhanced comfort level and modern design.",
+            },
+            "junior_suite": {
+                "name": "Junior Suite",
+                "desc": "A spacious room combining a sleeping area and a lounge area.",
+            },
+            "corner_suite": {
+                "name": "Corner Suite",
+                "desc": "A corner room with panoramic windows and plenty of natural light.",
+            },
+            "suite_apartment": {
+                "name": "Suite Apartment",
+                "desc": "Our top-category apartment-style room with a separate bedroom and living room.",
+            },
+        },
+        "photo_not_found": "🙏 Sorry, the photo for this room hasn't been uploaded yet. We'll add it soon.",
+        "amenities": {
+            "title": "🖼 Please choose a facility:",
+            "back_to_list": "🔙 Back to facilities list",
+            "spa_zone": {
+                "name": "SPA zone",
+                "desc": "A dedicated relaxation zone with hydro-massage baths and a soothing atmosphere.",
+            },
+            "pool": {
+                "name": "Indoor pool",
+                "desc": "A warm indoor pool available year-round — perfect for swimming and relaxing.",
+            },
+            "hammam": {
+                "name": "Turkish hammam",
+                "desc": "A traditional Turkish hammam with heated stone platforms and national ornamentation.",
+            },
+            "sauna": {
+                "name": "Finnish sauna",
+                "desc": "A warm wooden Finnish sauna — great for muscle relaxation and detox.",
+            },
+            "gym": {
+                "name": "Fitness center",
+                "desc": "A spacious fitness center equipped with modern gym machines.",
+            },
+        },
+        "conference": {
+            "title": "🖼 Please choose a hall:",
+            "back_to_list": "🔙 Back to hall list",
+            "conference_hall": {
+                "name": "Conference Hall",
+                "desc": (
+                    "Capacity: 100–120 guests\n\n"
+                    "Included services:\n"
+                    "• Mineral water, paper and pencils\n"
+                    "• Screen and multimedia projector\n"
+                    "• Sound system with 1 microphone\n"
+                    "• Wireless internet access\n"
+                    "• Flipchart with colored markers\n"
+                    "• Podium, registration desk"
+                ),
+            },
+            "summit_room": {
+                "name": "Summit Room",
+                "desc": (
+                    "Capacity: 20–25 guests\n\n"
+                    "Included services:\n"
+                    "• Mineral water, paper and pencils\n"
+                    "• Screen and multimedia projector\n"
+                    "• Sound system with 1 microphone\n"
+                    "• Wireless internet access\n"
+                    "• Flipchart with colored markers\n"
+                    "• Podium, registration desk"
+                ),
+            },
+        },
+    },
+}
+
+# Til tanlash tugmalari uchun tartib
+LANGUAGE_ORDER = ["uz", "ru", "en"]
+
+# Xona tasniflari tartibi (rasm galereyasi uchun)
+ROOM_ORDER = [
+    "twin_room",
+    "double_room",
+    "deluxe_room",
+    "junior_suite",
+    "corner_suite",
+    "suite_apartment",
+]
+
+# Xizmatlar (SPA/fitness) tartibi (rasm galereyasi uchun)
+AMENITY_ORDER = ["spa_zone", "pool", "hammam", "sauna", "gym"]
+
+# Konferens zallari tartibi (rasm galereyasi uchun)
+CONFERENCE_ORDER = ["conference_hall", "summit_room"]
