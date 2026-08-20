@@ -33,6 +33,7 @@ TEXTS = {
             "services": "🛎 Қўшимча хизматлар",
             "location": "📍 Манзил ва трансфер",
             "travel_agency": "✈️ Travel Agency",
+            "conference": "🏛 Конференц-зал",
             "contact": "📞 Администратор билан боғланиш",
             "language": "🌐 Тилни ўзгартириш",
             "back": "🔙 Орқага",
@@ -101,6 +102,11 @@ TEXTS = {
                 "✉️ hhh.travel1@gmail.com\n"
                 "🌐 www.hhhtravel.uz"
             ),
+            "conference": (
+                "🏛 *Конференц-зал хизматлари*\n\n"
+                "Бизнес учрашувлар, семинарлар ва тадбирлар учун икки хил залимиз мавжуд. "
+                "Батафсил маълумот учун қуйидагилардан бирини танланг 👇"
+            ),
             "contact": (
                 "📞 *Администратор билан боғланиш*\n\n"
                 "Хонадаги ички телефон орқали «0» тугмасини босиб ёки бевосита қуйидаги "
@@ -162,6 +168,36 @@ TEXTS = {
                 "desc": "Замонавий тренажёрлар билан жиҳозланган кенг фитнес зал.",
             },
         },
+        "conference": {
+            "title": "🖼 Илтимос, зални танланг:",
+            "back_to_list": "🔙 Заллар рўйхатига",
+            "conference_hall": {
+                "name": "Конференц-зал",
+                "desc": (
+                    "Сиғими: 100–120 киши\n\n"
+                    "Киритилган хизматлар:\n"
+                    "• Минерал сув, қоғоз ва қаламлар\n"
+                    "• Экран ва мультимедиа проектор\n"
+                    "• Товуш кучайтиргич тизими ва 1 та микрофон\n"
+                    "• Симсиз интернет уланиши\n"
+                    "• Ранг-баранг маркерли флипчарт\n"
+                    "• Трибуна, рўйхатга олиш столи"
+                ),
+            },
+            "summit_room": {
+                "name": "Summit Room",
+                "desc": (
+                    "Сиғими: 20–25 киши\n\n"
+                    "Киритилган хизматлар:\n"
+                    "• Минерал сув, қоғоз ва қаламлар\n"
+                    "• Экран ва мультимедиа проектор\n"
+                    "• Товуш кучайтиргич тизими ва 1 та микрофон\n"
+                    "• Симсиз интернет уланиши\n"
+                    "• Ранг-баранг маркерли флипчарт\n"
+                    "• Трибуна, рўйхатга олиш столи"
+                ),
+            },
+        },
     },
     "ru": {
         "flag": "🇷🇺",
@@ -188,6 +224,7 @@ TEXTS = {
             "services": "🛎 Дополнительные услуги",
             "location": "📍 Локация и трансфер",
             "travel_agency": "✈️ Travel Agency",
+            "conference": "🏛 Конференц-зал",
             "contact": "📞 Связь с администратором",
             "language": "🌐 Изменить язык",
             "back": "🔙 Назад",
@@ -258,6 +295,11 @@ TEXTS = {
                 "✉️ hhh.travel1@gmail.com\n"
                 "🌐 www.hhhtravel.uz"
             ),
+            "conference": (
+                "🏛 *Конференц-услуги*\n\n"
+                "Для деловых встреч, семинаров и мероприятий у нас есть два зала. "
+                "Выберите один из них, чтобы узнать подробности 👇"
+            ),
             "contact": (
                 "📞 *Связь с администратором*\n\n"
                 "Вы можете позвонить на рецепцию из номера по внутреннему номеру «0» или "
@@ -319,6 +361,36 @@ TEXTS = {
                 "desc": "Просторный фитнес-зал с современными тренажёрами.",
             },
         },
+        "conference": {
+            "title": "🖼 Пожалуйста, выберите зал:",
+            "back_to_list": "🔙 К списку залов",
+            "conference_hall": {
+                "name": "Конференц-зал",
+                "desc": (
+                    "Вместимость: 100–120 человек\n\n"
+                    "Включённые услуги:\n"
+                    "• Минеральная вода, бумага и карандаши\n"
+                    "• Экран и мультимедийный проектор\n"
+                    "• Система звукоусиления и 1 микрофон\n"
+                    "• Беспроводное подключение к интернету\n"
+                    "• Флипчарт с цветными маркерами\n"
+                    "• Трибуна, регистрационный стол"
+                ),
+            },
+            "summit_room": {
+                "name": "Summit Room",
+                "desc": (
+                    "Вместимость: 20–25 человек\n\n"
+                    "Включённые услуги:\n"
+                    "• Минеральная вода, бумага и карандаши\n"
+                    "• Экран и мультимедийный проектор\n"
+                    "• Система звукоусиления и 1 микрофон\n"
+                    "• Беспроводное подключение к интернету\n"
+                    "• Флипчарт с цветными маркерами\n"
+                    "• Трибуна, регистрационный стол"
+                ),
+            },
+        },
     },
     "en": {
         "flag": "🇬🇧",
@@ -345,6 +417,7 @@ TEXTS = {
             "services": "🛎 Additional services",
             "location": "📍 Location & Transfer",
             "travel_agency": "✈️ Travel Agency",
+            "conference": "🏛 Conference Hall",
             "contact": "📞 Contact front desk",
             "language": "🌐 Change language",
             "back": "🔙 Back",
@@ -413,6 +486,11 @@ TEXTS = {
                 "✉️ hhh.travel1@gmail.com\n"
                 "🌐 www.hhhtravel.uz"
             ),
+            "conference": (
+                "🏛 *Conference facilities*\n\n"
+                "We offer two halls for business meetings, seminars and events. "
+                "Choose one below for more details 👇"
+            ),
             "contact": (
                 "📞 *Contact front desk*\n\n"
                 "You can call the front desk from your room by dialing “0”, or directly "
@@ -474,6 +552,36 @@ TEXTS = {
                 "desc": "A spacious fitness center equipped with modern gym machines.",
             },
         },
+        "conference": {
+            "title": "🖼 Please choose a hall:",
+            "back_to_list": "🔙 Back to hall list",
+            "conference_hall": {
+                "name": "Conference Hall",
+                "desc": (
+                    "Capacity: 100–120 guests\n\n"
+                    "Included services:\n"
+                    "• Mineral water, paper and pencils\n"
+                    "• Screen and multimedia projector\n"
+                    "• Sound system with 1 microphone\n"
+                    "• Wireless internet access\n"
+                    "• Flipchart with colored markers\n"
+                    "• Podium, registration desk"
+                ),
+            },
+            "summit_room": {
+                "name": "Summit Room",
+                "desc": (
+                    "Capacity: 20–25 guests\n\n"
+                    "Included services:\n"
+                    "• Mineral water, paper and pencils\n"
+                    "• Screen and multimedia projector\n"
+                    "• Sound system with 1 microphone\n"
+                    "• Wireless internet access\n"
+                    "• Flipchart with colored markers\n"
+                    "• Podium, registration desk"
+                ),
+            },
+        },
     },
 }
 
@@ -492,3 +600,7 @@ ROOM_ORDER = [
 
 # Xizmatlar (SPA/fitness) tartibi (rasm galereyasi uchun)
 AMENITY_ORDER = ["spa_zone", "pool", "hammam", "sauna", "gym"]
+
+# Konferens zallari tartibi (rasm galereyasi uchun)
+CONFERENCE_ORDER = ["conference_hall", "summit_room"]
+
